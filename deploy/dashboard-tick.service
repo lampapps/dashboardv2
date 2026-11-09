@@ -1,0 +1,12 @@
+[Unit]
+Description=JABS dashboard (@NAME@) periodic tasks
+
+[Service]
+Type=oneshot
+User=@USER@
+WorkingDirectory=@APP_DIR@
+ExecStart=@APP_DIR@/.venv/bin/python -m app tick
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=@APP_DIR@/data

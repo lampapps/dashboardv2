@@ -1,0 +1,48 @@
+# JABS dashboard v2 configuration. Copy to config/config.yaml and edit.
+# Secrets (SMTP login, AWS keys) go in .env, never here. Agents are in agents.yaml.
+
+# IANA timezone used to group days and to display times.
+timezone: "America/New_York"
+
+server:
+  host: "0.0.0.0"
+  port: 5002            # use 5000 once v2 replaces v1
+  workers: 2
+  threads: 2
+
+# Status badges shown across the top of the dashboard (Uptime Kuma or any image URL).
+badges: []
+#  - label: "NAS1"
+#    image_url: "http://kuma.example.lan/api/badge/13/status?label=NAS1"
+#    link: "http://kuma.example.lan/"
+
+storage:
+  # Local drives and mounts to sample for storage-over-time charts.
+  drives:
+    - path: "/"
+      label: "Root"
+  # S3 buckets to sample (needs AWS credentials in .env). Leave empty to disable.
+  s3_buckets: []
+#    - bucket: "example-bucket"
+#      label: "Backups"
+
+email:
+  smtp_server: ""       # set to enable email; credentials: JABS_SMTP_USER / JABS_SMTP_PASS in .env
+  smtp_port: 587
+  use_tls: true
+  from_addr: ""
+  to_addrs: []
+  digest:
+    enabled: true
+    schedule: "0 8 * * *"        # 5-field cron expression
+  offline_alert:
+    enabled: true
+    max_alerts: 1                # alerts per outage; 0 = repeat until back online
+    repeat_interval_minutes: 60
+
+retention:
+  runs_days: 30          # raw runs and their events
+  rollup_days: 365       # daily job-activity counts
+  status_days: 365       # agent up/down history
+  storage_days: 365      # storage samples
+  log_lines_per_log: 5000

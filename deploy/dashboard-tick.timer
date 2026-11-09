@@ -1,0 +1,11 @@
+[Unit]
+Description=Run JABS dashboard (@NAME@) periodic tasks every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnCalendar=*:0/5
+Persistent=true
+Unit=@NAME@-tick.service
+
+[Install]
+WantedBy=timers.target
