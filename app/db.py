@@ -111,6 +111,11 @@ MIGRATIONS: list[list[str]] = [
         )""",
         "CREATE INDEX idx_storage_samples_ts ON storage_samples(ts)",
     ],
+    [
+        # Last logged up/down status per agent (NULL = never known), so ingest can spot transitions cheaply.
+        "ALTER TABLE agent_state ADD COLUMN status TEXT",
+        "ALTER TABLE agent_state ADD COLUMN status_since REAL",
+    ],
 ]
 
 

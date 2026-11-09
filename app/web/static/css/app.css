@@ -126,6 +126,11 @@ th[aria-sort="descending"] .sort::after { content: " \25BC"; font-size: .7em; }
 .pill-stopped { background: var(--st-stopped); }
 .pill-running { background: var(--st-running); }
 .pill-other { background: var(--st-other); }
+.pill-up { background: var(--st-success); }
+.pill-down { background: var(--st-failed); }
+.pill-new { background: var(--st-other); }
+.pill-disabled { background: var(--unknown); }
+.pill-unknown { background: var(--st-stopped); }
 
 .pips { display: flex; gap: 3px; flex-wrap: wrap; min-width: 16.5rem; max-width: 16.5rem; }
 .pip { width: 9px; height: 18px; border-radius: 2px; background: var(--st-other); }
@@ -145,3 +150,28 @@ th[aria-sort="descending"] .sort::after { content: " \25BC"; font-size: .7em; }
   .topbar nav { order: 3; flex-basis: 100%; }
 }
 @media (max-width: 520px) { .value { font-size: 1.6rem; } }
+
+.agents-head { padding: 0; margin: .25rem 0 .5rem; }
+.legend { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: .75rem; }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: .25rem; vertical-align: -1px; }
+.agent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: .75rem; align-items: start; }
+.agent-card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: .9rem 1rem;
+  display: flex; flex-direction: column; gap: .5rem;
+}
+.agent-head { display: flex; align-items: center; gap: .6rem; }
+.agent-name { margin: 0; font-size: 1.05rem; color: var(--text); text-transform: none; letter-spacing: 0; overflow-wrap: anywhere; }
+.uptime-row { display: flex; align-items: baseline; gap: .5rem; }
+.uptime-value { font-size: 1.5rem; font-weight: 700; }
+.timeline { position: relative; height: 16px; border-radius: 4px; background: var(--bg); border: 1px solid var(--border); overflow: hidden; }
+.seg { position: absolute; top: 0; bottom: 0; }
+.seg-up { background: var(--st-success); }
+.seg-down { background: var(--st-failed); }
+.seg-disabled { background: var(--unknown); opacity: .5; }
+.seg-unknown { background: repeating-linear-gradient(45deg, var(--st-other), var(--st-other) 3px, transparent 3px, transparent 6px); }
+.timeline-axis { display: flex; justify-content: space-between; }
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; margin: 0; font-size: .9rem; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; overflow-wrap: anywhere; white-space: pre-line; }
+.config summary { cursor: pointer; color: var(--muted); }
+.config[open] summary { margin-bottom: .5rem; }

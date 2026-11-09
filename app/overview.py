@@ -5,8 +5,8 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from . import activity, jobs
-from .agent_status import agent_status
 from .config import AgentConfig, Config
+from .status import effective_status, gap_end
 
 DAY_S = 86400
 MAX_ACTIVITY_DAYS = 365
@@ -30,13 +30,16 @@ def _finished_counts(conn: sqlite3.Connection, since: float) -> dict:
 
 
 def _agents(conn: sqlite3.Connection, configured: list, now: float) -> list:
-    heartbeats = {row["name"]: row["last_heartbeat"] for row in conn.execute(
-        "SELECT name, last_heartbeat FROM agent_state")}
-    return [
-        {"name": a.name, "status": agent_status(a, heartbeats.get(a.name), now),
-         "last_heartbeat": heartbeats.get(a.name)}
-        for a in sorted(configured, key=lambda a: a.name)
-    ]
+    states = {row["name"]: row for row in conn.execute(
+        "SELECT name, status, last_heartbeat FROM agent_state")}
+    gap = gap_end(conn)
+    rows = []
+    for a in sorted(configured, key=lambda a: a.name):
+        state = states.get(a.name)
+        heartbeat = state["last_heartbeat"] if state else None
+        rows.append({"name": a.name, "last_heartbeat": heartbeat,
+                     "status": effective_status(a, state["status"] if state else None, heartbeat, now, gap)})
+    return rows
 
 
 def build(conn: sqlite3.Connection, cfg: Config, configured: list, now: float, days: int) -> dict:

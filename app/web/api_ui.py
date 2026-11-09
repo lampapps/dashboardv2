@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 from flask import Blueprint, Response, current_app, jsonify, request
 
-from .. import db, jobs, overview, storage
+from .. import agents_report, db, jobs, overview, storage
 
 bp = Blueprint("ui", __name__, url_prefix="/api/ui")
 
@@ -36,6 +36,25 @@ def overview_data():
             last_tick = db.get_meta(conn, "last_tick_ts")
             payload["tick_age_s"] = None if last_tick is None else round(now - float(last_tick))
             response = jsonify(payload)
+    response.headers["ETag"] = etag
+    response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
+@bp.get("/agents")
+def agents_data():
+    """Per-agent status, up/down history and configuration; never includes keys or key hashes."""
+    cfg = current_app.config["JABS_CONFIG"]
+    range_key, _ = storage.range_seconds(request.args.get("range"))
+    now = time.time()
+    with closing(db.connect()) as conn:
+        rev = db.get_meta(conn, "rev", "0")
+        etag = f'"{rev}-{int(now // 60)}-{range_key}"'
+        if request.headers.get("If-None-Match") == etag:
+            response = Response(status=304)
+        else:
+            configured = current_app.extensions["jabs_agents"].agents()
+            response = jsonify(agents_report.build(conn, cfg, configured, now, range_key))
     response.headers["ETag"] = etag
     response.headers["Cache-Control"] = "no-cache"
     return response

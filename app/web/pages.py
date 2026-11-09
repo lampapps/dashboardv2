@@ -11,3 +11,8 @@ bp = Blueprint("pages", __name__)
 def overview():
     cfg = current_app.config["JABS_CONFIG"]
     return render_template("overview.html", badges=cfg.badges, version=settings.VERSION, page="overview")
+
+
+@bp.get("/agents")
+def agents():
+    return render_template("agents.html", version=settings.VERSION, page="agents")

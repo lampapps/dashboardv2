@@ -1,0 +1,213 @@
+import {
+  el, setText, setClass, setStyle, setTitle, setHidden, setData, readStore, writeStore, reconcile, getJson, poll,
+  initThemeToggle, fmtClock, fmtDateTime, fmtDuration, fmtRelative, fmtShort, fmtTick, fmtPercent,
+} from "./ui.js";
+
+const $ = (id) => document.getElementById(id);
+const POLL_MS = 15000;
+const RANGES = ["24h", "7d", "30d", "90d"];
+const STATUS_LABEL = { up: "Up", down: "Down", new: "New", disabled: "Disabled", unknown: "No data" };
+const BUCKET_OF = {
+  success: "success", completed: "success", purged: "success",
+  failed: "failed", error: "failed", stopped: "stopped", running: "running",
+};
+
+const state = {
+  range: RANGES.includes(readStore("agentRange")) ? readStore("agentRange") : "7d",
+  data: null,
+  etag: null,
+  tz: "UTC",
+  clockOffset: 0,
+  connectionError: false,
+};
+let requestSeq = 0;
+
+const nowEstimate = () => Date.now() / 1000 + state.clockOffset;
+const rangeIsIntraday = () => state.range === "24h";
+
+// ---------------------------------------------------------------- timeline
+
+// Segments are positioned by percentage of the range, and reused in place on every update.
+function syncTimeline(container, data, agent) {
+  const total = data.end - data.start;
+  const spans = agent.spans;
+  while (container.children.length > spans.length) container.lastElementChild.remove();
+  while (container.children.length < spans.length) container.append(el("span", "seg"));
+  spans.forEach(([begin, end, status], i) => {
+    const seg = container.children[i];
+    setClass(seg, "seg seg-" + status);
+    setStyle(seg, "left", `${((begin - data.start) / total) * 100}%`);
+    setStyle(seg, "width", `${((end - begin) / total) * 100}%`);
+    setTitle(seg, `${STATUS_LABEL[status]} · ${fmtDateTime(begin, state.tz)} to ${fmtDateTime(end, state.tz)} (${fmtDuration(end - begin)})`);
+  });
+}
+
+// ---------------------------------------------------------------- cards
+
+function fact(list, label) {
+  const dt = el("dt", null, label);
+  const dd = el("dd");
+  list.append(dt, dd);
+  return dd;
+}
+
+function createCard() {
+  const card = el("article", "agent-card");
+
+  const head = el("div", "agent-head");
+  const name = el("h3", "agent-name");
+  const pill = el("span", "pill");
+  head.append(name, pill);
+  const meta = el("div", "sub");
+
+  const uptimeRow = el("div", "uptime-row");
+  const uptime = el("span", "uptime-value tnum");
+  const uptimeLabel = el("span", "sub");
+  uptimeRow.append(uptime, uptimeLabel);
+  const timeline = el("div", "timeline");
+  timeline.setAttribute("role", "img");
+  const axis = el("div", "timeline-axis sub");
+  const axisStart = el("span");
+  const axisEnd = el("span", null, "now");
+  axis.append(axisStart, axisEnd);
+
+  const facts = el("dl", "facts");
+  const lastContact = fact(facts, "Last contact");
+  const jobs = fact(facts, "Jobs");
+  const lastRun = fact(facts, "Last run");
+  const lastRunPill = el("span", "pill");
+  const lastRunText = el("span");
+  lastRun.append(lastRunPill, lastRunText);
+
+  const details = el("details", "config");
+  details.append(el("summary", null, "Configuration"));
+  const cfg = el("dl", "facts");
+  const refs = {
+    enabled: fact(cfg, "Enabled"), grace: fact(cfg, "Grace period"), alerts: fact(cfg, "Offline alerts"),
+    ip: fact(cfg, "Allowed IP"), notes: fact(cfg, "Notes"), schedules: fact(cfg, "Schedules"),
+  };
+  details.append(cfg);
+
+  card.append(head, meta, uptimeRow, timeline, axis, facts, details);
+  card._refs = { name, pill, meta, uptime, uptimeLabel, timeline, axisStart, lastContact, jobs, lastRunPill, lastRunText, lastRun, ...refs };
+  return card;
+}
+
+function updateCard(card, agent) {
+  const r = card._refs;
+  const data = state.data;
+  setText(r.name, agent.name);
+  setText(r.pill, STATUS_LABEL[agent.status]);
+  setClass(r.pill, "pill pill-" + agent.status);
+  const meta = [agent.agent_type, agent.version ? "v" + agent.version : null];
+  if (agent.since && agent.status !== "up") meta.push(`${STATUS_LABEL[agent.status].toLowerCase()} since ${fmtShort(agent.since, state.tz)}`);
+  setText(r.meta, meta.filter(Boolean).join(" · "));
+
+  setText(r.uptime, agent.uptime === null ? "–" : fmtPercent(agent.uptime));
+  setText(r.uptimeLabel, agent.uptime === null ? "no up/down history in this range" : `up over the last ${data.range}`);
+  syncTimeline(r.timeline, data, agent);
+  setText(r.axisStart, fmtTick(data.start, state.tz, rangeIsIntraday()));
+
+  if (agent.last_heartbeat) {
+    setData(r.lastContact, "ts", String(agent.last_heartbeat));
+    setTitle(r.lastContact, fmtDateTime(agent.last_heartbeat, state.tz));
+  } else {
+    if (r.lastContact.dataset.ts !== undefined) delete r.lastContact.dataset.ts;
+    setText(r.lastContact, "never");
+  }
+  const failing = agent.jobs.failing ? ` · ${agent.jobs.failing} failing` : "";
+  setText(r.jobs, agent.jobs.total ? `${agent.jobs.total} job${agent.jobs.total === 1 ? "" : "s"}${failing}` : "none yet");
+
+  const run = agent.last_run;
+  setHidden(r.lastRunPill, !run);
+  if (run) {
+    const bucket = BUCKET_OF[run.status] || "other";
+    setText(r.lastRunPill, run.status);
+    setClass(r.lastRunPill, "pill pill-" + bucket);
+    const prefix = ` ${run.job_name || "(unnamed)"} · `;
+    setData(r.lastRunText, "ts", String(run.started_at));
+    setData(r.lastRunText, "prefix", prefix);
+    setText(r.lastRunText, prefix + fmtRelative(run.started_at, nowEstimate()));
+  } else {
+    setText(r.lastRunText, "–");
+  }
+
+  const cfg = agent.config;
+  setText(r.enabled, cfg.enabled ? "yes" : "no");
+  setText(r.grace, `${cfg.grace_minutes} min`);
+  setText(r.alerts, cfg.offline_alerts ? "on" : "off");
+  setText(r.ip, cfg.allowed_ip || "any");
+  setText(r.notes, cfg.notes || "–");
+  setText(r.schedules, agent.schedules.length ? agent.schedules.map((s) => `${s.job_name}: ${s.cron_schedule}`).join("\n") : "–");
+}
+
+// ---------------------------------------------------------------- render and fetch
+
+function refreshRelative() {
+  const now = nowEstimate();
+  document.querySelectorAll("#agent-grid [data-ts]").forEach((node) => {
+    const prefix = node.dataset.prefix || "";
+    setText(node, prefix + fmtRelative(Number(node.dataset.ts), now));
+  });
+}
+
+function render(data) {
+  reconcile($("agent-grid"), data.agents, { key: (a) => a.name, create: createCard, update: updateCard });
+  setHidden($("agents-empty"), data.agents.length > 0);
+  const active = data.agents.filter((a) => a.status !== "disabled");
+  const up = active.filter((a) => a.status === "up").length;
+  setText($("agents-summary"), active.length ? `${up} of ${active.length} reporting` : "");
+  refreshRelative();
+}
+
+function renderBanner() {
+  const box = $("banners");
+  if (state.connectionError && !box.firstChild) {
+    const node = el("div", "banner banner-crit", "Cannot load data from the dashboard service.");
+    node.setAttribute("role", "alert");
+    box.append(node);
+  } else if (!state.connectionError) {
+    box.replaceChildren();
+  }
+}
+
+async function refresh(force) {
+  const mine = ++requestSeq;
+  try {
+    const result = await getJson(`/api/ui/agents?range=${state.range}`, force ? null : state.etag);
+    if (mine !== requestSeq) return;
+    state.connectionError = false;
+    if (!result.notModified) {
+      state.data = result.data;
+      state.etag = result.etag;
+      state.tz = result.data.timezone;
+      state.clockOffset = result.data.now - Date.now() / 1000;
+      render(result.data);
+    }
+    renderBanner();
+    setText($("updated"), "Updated " + fmtClock(nowEstimate(), state.tz));
+  } catch (e) {
+    if (mine !== requestSeq) return;
+    state.connectionError = true;
+    renderBanner();
+  }
+}
+
+function markRange() {
+  document.querySelectorAll("#agent-ranges button").forEach((b) => {
+    b.setAttribute("aria-pressed", b.dataset.range === state.range ? "true" : "false");
+  });
+}
+
+initThemeToggle($("theme-toggle"));
+markRange();
+document.querySelectorAll("#agent-ranges button").forEach((b) => {
+  b.addEventListener("click", () => {
+    state.range = b.dataset.range;
+    writeStore("agentRange", state.range);
+    markRange();
+    refresh(true);
+  });
+});
+poll(() => refresh(false), POLL_MS);
+setInterval(() => { if (!document.hidden) refreshRelative(); }, 15000);

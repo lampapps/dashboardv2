@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Agents - JABS{% endblock %}
+
+{% block content %}
+<section class="panel-head agents-head">
+  <div>
+    <h2>Agents</h2>
+    <div class="sub" id="agents-summary"></div>
+  </div>
+  <div class="ranges" id="agent-ranges" role="group" aria-label="History range">
+    <button class="btn" type="button" data-range="24h" aria-pressed="false">24 h</button>
+    <button class="btn" type="button" data-range="7d" aria-pressed="false">7 d</button>
+    <button class="btn" type="button" data-range="30d" aria-pressed="false">30 d</button>
+    <button class="btn" type="button" data-range="90d" aria-pressed="false">90 d</button>
+  </div>
+</section>
+
+<div class="legend sub" aria-hidden="true">
+  <span><i class="swatch seg-up"></i> up</span>
+  <span><i class="swatch seg-down"></i> down</span>
+  <span><i class="swatch seg-unknown"></i> no data (dashboard was down)</span>
+  <span><i class="swatch seg-disabled"></i> disabled</span>
+</div>
+
+<div class="agent-grid" id="agent-grid"></div>
+<p class="sub empty" id="agents-empty" hidden>
+  No agents are registered. Add one with <code>python -m app agent add NAME</code>.
+</p>
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='js/agents.js', v=version) }}"></script>
+{% endblock %}

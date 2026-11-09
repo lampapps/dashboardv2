@@ -9,7 +9,7 @@ from typing import Any, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from . import db
+from . import db, status as agent_status
 
 Number = Optional[Union[int, float]]
 
@@ -106,6 +106,7 @@ def _touch_agent(conn: sqlite3.Connection, agent: str, payload: EventPayload, no
         "agent_type = COALESCE(excluded.agent_type, agent_type)",
         (agent, payload.version, payload.agent_type, now, now),
     )
+    agent_status.record_contact(conn, agent, now)
 
 
 def touch_agent(conn: sqlite3.Connection, agent: str, now: float) -> None:

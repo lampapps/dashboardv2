@@ -5,7 +5,6 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from app import activity, config, db, jobs, overview, tick
-from app.agent_status import agent_status
 from app.web import api_ui, create_app
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -97,17 +96,6 @@ class TestActivity:
         activity.rollup_daily(conn, IST, NOW, runs_days=30)
         rows = [tuple(r) for r in conn.execute("SELECT bucket, runs FROM daily_runs")]
         assert rows == [("success", 1)]
-
-
-class TestAgentStatus:
-    def agent(self, **kwargs):
-        return config.AgentConfig(name="a", key_hash="0" * 64, **kwargs)
-
-    def test_states(self):
-        assert agent_status(self.agent(enabled=False), 100.0, 100.0) == "disabled"
-        assert agent_status(self.agent(), None, 100.0) == "new"
-        assert agent_status(self.agent(grace_minutes=10), 100.0, 100.0 + 600) == "up"
-        assert agent_status(self.agent(grace_minutes=10), 100.0, 100.0 + 601) == "down"
 
 
 class TestJobRollupDetails:

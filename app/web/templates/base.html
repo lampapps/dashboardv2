@@ -16,6 +16,7 @@
     </div>
     <nav aria-label="Pages">
       <a href="{{ url_for('pages.overview') }}"{% if page == 'overview' %} aria-current="page"{% endif %}>Overview</a>
+      <a href="{{ url_for('pages.agents') }}"{% if page == 'agents' %} aria-current="page"{% endif %}>Agents</a>
     </nav>
     <div class="topbar-right">
       <span id="updated" class="sub"></span>
