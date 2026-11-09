@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Per-install state and secrets
+.env
+config/config.yaml
+config/agents.yaml
+data/
+logs/
+keys/
