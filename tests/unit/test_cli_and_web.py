@@ -53,6 +53,19 @@ class TestCli:
     def test_bare_agent_command_is_a_usage_error(self, home, capsys):
         assert run_cli(capsys, "agent")[0] == 2
 
+    def test_agent_disable_and_enable(self, home, capsys):
+        run_cli(capsys, "agent", "add", "nas1")
+        assert run_cli(capsys, "agent", "disable", "nas1")[0] == 0
+        assert config.load_agents()[0].enabled is False
+        assert "disabled" in run_cli(capsys, "agent", "list")[1]
+        assert run_cli(capsys, "agent", "enable", "nas1")[0] == 0
+        assert config.load_agents()[0].enabled is True
+
+    def test_disabling_an_unknown_agent_fails(self, home, capsys):
+        code, _, err = run_cli(capsys, "agent", "disable", "ghost")
+        assert code == 1
+        assert "not found" in err
+
     def test_tick_records_the_time_it_ran(self, home, capsys):
         assert run_cli(capsys, "tick")[0] == 0
         conn = db.connect()

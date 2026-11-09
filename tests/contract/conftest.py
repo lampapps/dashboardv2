@@ -1,9 +1,8 @@
 """Fixtures for the agent-ingest contract tests.
 
-Select the target with JABS_CONTRACT_BACKEND (default: v1). For v1, the copy is
-made from JABS_V1_DIR (default: ../dashboard) and run with JABS_V1_PYTHON
-(default: <JABS_V1_DIR>/venv/bin/python). The real v1 instance and its DB are
-never touched.
+JABS_CONTRACT_BACKENDS selects what to run against (comma list, default "v1,v2"). For v1, the copy is
+made from JABS_V1_DIR (default: ../dashboard) and run with JABS_V1_PYTHON (default:
+<JABS_V1_DIR>/venv/bin/python). The real v1 instance and its DB are never touched.
 """
 
 import os
@@ -12,31 +11,33 @@ from pathlib import Path
 
 import pytest
 
-from tests.contract.backends import Agent, Backend, V1Backend
+from tests.contract.backends import Agent, Backend, V1Backend, V2Backend
 
-TARGET = os.environ.get("JABS_CONTRACT_BACKEND", "v1")
+BACKENDS = [b.strip() for b in os.environ.get("JABS_CONTRACT_BACKENDS", "v1,v2").split(",") if b.strip()]
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def pytest_collection_modifyitems(items):
-    if TARGET != "v1":
-        return
     for item in items:
         marker = item.get_closest_marker("v1_bug")
-        if marker:
+        callspec = getattr(item, "callspec", None)
+        if marker and callspec and callspec.params.get("backend") == "v1":
             reason = marker.args[0] if marker.args else "known v1 bug"
             item.add_marker(pytest.mark.xfail(reason=reason, strict=True))
 
 
-@pytest.fixture(scope="session")
-def backend():
-    if TARGET != "v1":
-        pytest.skip(f"no contract adapter for backend '{TARGET}' yet")
-    v1_dir = Path(os.environ.get("JABS_V1_DIR", REPO_ROOT.parent / "dashboard")).resolve()
-    python = Path(os.environ.get("JABS_V1_PYTHON", v1_dir / "venv" / "bin" / "python"))
-    if not python.exists():
-        pytest.exit(f"v1 interpreter not found: {python} (set JABS_V1_PYTHON)", returncode=2)
-    instance = V1Backend(v1_dir, python)
+@pytest.fixture(scope="session", params=BACKENDS)
+def backend(request):
+    if request.param == "v1":
+        v1_dir = Path(os.environ.get("JABS_V1_DIR", REPO_ROOT.parent / "dashboard")).resolve()
+        python = Path(os.environ.get("JABS_V1_PYTHON", v1_dir / "venv" / "bin" / "python"))
+        if not python.exists():
+            pytest.exit(f"v1 interpreter not found: {python} (set JABS_V1_PYTHON)", returncode=2)
+        instance = V1Backend(v1_dir, python)
+    elif request.param == "v2":
+        instance = V2Backend(REPO_ROOT)
+    else:
+        pytest.exit(f"unknown contract backend '{request.param}'", returncode=2)
     instance.start()
     yield instance
     instance.stop()

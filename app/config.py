@@ -241,3 +241,15 @@ def add_agent(name: str, grace_minutes: int = 60, notes: str = "",
         raise ConfigError(f"agent '{name}' already exists")
     _write_agents(agents + [entry], path)
     return key
+
+
+def set_agent_enabled(name: str, enabled: bool, path: Optional[PathLike] = None) -> None:
+    """Enable or disable a registered agent without touching its key."""
+    path = Path(path or settings.AGENTS_PATH)
+    agents = load_agents(path)
+    for agent in agents:
+        if agent.name == name:
+            agent.enabled = enabled
+            _write_agents(agents, path)
+            return
+    raise ConfigError(f"agent '{name}' not found")

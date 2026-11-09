@@ -27,6 +27,6 @@ Replacement for the legacy dashboard (`../dashboard`, "v1"). Read-only web UI pl
 
 ## Testing
 
-- pytest (`requirements-dev.txt`). `tests/unit` is fast and isolated (use the `home` fixture). `tests/contract` is a black-box agent-API suite that runs against a throwaway copy of v1 and, later, v2: `JABS_CONTRACT_BACKEND=v1|v2`.
+- pytest (`requirements-dev.txt`). `tests/unit` is fast and isolated (use the `home` fixture). `tests/contract` is a black-box agent-API suite that runs against a throwaway copy of v1 and v2: `JABS_CONTRACT_BACKENDS=v1,v2` (default both).
 - `@pytest.mark.v1_bug(reason)` marks behavior v1 gets wrong; it is a strict xfail on v1 and must pass on v2.
 - Add or update tests with every non-trivial change; run `.venv/bin/python -m pytest -q` before finishing.

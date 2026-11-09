@@ -77,8 +77,20 @@ def _cmd_agent_list(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_agent_enable(args: argparse.Namespace) -> int:
+    config.set_agent_enabled(args.name, True)
+    print(f"Agent '{args.name}' enabled")
+    return 0
+
+
+def _cmd_agent_disable(args: argparse.Namespace) -> int:
+    config.set_agent_enabled(args.name, False)
+    print(f"Agent '{args.name}' disabled; its key is rejected until re-enabled")
+    return 0
+
+
 def _cmd_agent_usage(_args: argparse.Namespace) -> int:
-    print("usage: python -m app agent {add,list} ...", file=sys.stderr)
+    print("usage: python -m app agent {add,list,enable,disable} ...", file=sys.stderr)
     return 2
 
 
@@ -111,6 +123,10 @@ def build_parser() -> argparse.ArgumentParser:
     agent_add.add_argument("--allowed-ip", help="only accept this agent's key from this address")
     agent_add.set_defaults(func=_cmd_agent_add)
     agent_sub.add_parser("list", help="list registered agents").set_defaults(func=_cmd_agent_list)
+    for verb, func in (("enable", _cmd_agent_enable), ("disable", _cmd_agent_disable)):
+        verb_parser = agent_sub.add_parser(verb, help=f"{verb} a registered agent")
+        verb_parser.add_argument("name")
+        verb_parser.set_defaults(func=func)
     return parser
 
 

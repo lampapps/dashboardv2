@@ -1,6 +1,6 @@
 """Per-(agent, job) rollup the dashboard's jobs table is built from, plus legacy health endpoint."""
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pytest
 
@@ -88,7 +88,7 @@ class TestNextEvent:
 
     def test_last_run_far_from_any_scheduled_time_is_flagged_as_drift(
             self, backend, agent, reporter):
-        far = datetime.now() + timedelta(hours=12)
+        far = backend.now() + timedelta(hours=12)
         row = self._job_with_schedule(backend, agent, reporter, f"{far.minute} {far.hour} * * *")
         assert row["has_next_event"] is True
         assert row["schedule_drifted"] is True
