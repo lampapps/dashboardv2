@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  fmtDateTime, fmtClock, fmtShort, fmtDayLabel, fmtDuration, fmtRelative, fmtPercent, reconcile,
+  fmtDateTime, fmtClock, fmtShort, fmtDayLabel, fmtDuration, fmtRelative, fmtPercent, fmtBytes, fmtTick,
+  tickValues, reconcile,
 } from "../../app/web/static/js/ui.js";
 
 // 2026-01-15 12:00:00 UTC = 17:30 in Asia/Kolkata
@@ -32,6 +33,31 @@ test("relative times", () => {
   assert.equal(fmtRelative(0, 300), "5 min ago");
   assert.equal(fmtRelative(10800, 0), "in 3 h");
   assert.equal(fmtRelative(0, 2 * 86400), "2 d ago");
+});
+
+test("bytes use binary units and keep a readable number of digits", () => {
+  assert.equal(fmtBytes(0), "0 B");
+  assert.equal(fmtBytes(1023), "1023 B");
+  assert.equal(fmtBytes(1536), "1.5 KiB");
+  assert.equal(fmtBytes(5 * 1024 ** 3), "5.0 GiB");
+  assert.equal(fmtBytes(250 * 1024 ** 4), "250 TiB");
+  assert.equal(fmtBytes(3.2 * 1024 ** 4), "3.2 TiB");
+  assert.equal(fmtBytes(null), "–");
+  assert.equal(fmtBytes(-1536), "-1.5 KiB");
+});
+
+test("tick values fall on local midnights of the given timezone", () => {
+  const min = Date.UTC(2026, 0, 10, 3, 0, 0) / 1000;
+  const max = Date.UTC(2026, 0, 14, 3, 0, 0) / 1000;
+  const ticks = tickValues(min, max, 86400, "Asia/Kolkata");
+  assert.equal(ticks.length, 4);
+  ticks.forEach((t) => assert.equal(fmtClock(t, "Asia/Kolkata"), "00:00:00"));
+  assert.ok(ticks.every((t) => t >= min && t <= max));
+});
+
+test("tick labels switch between clock times and calendar days", () => {
+  assert.equal(fmtTick(TS, "Asia/Kolkata", true), "17:30");
+  assert.equal(fmtTick(TS, "Asia/Kolkata", false), "Jan 15");
 });
 
 test("percent", () => {

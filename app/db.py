@@ -96,6 +96,21 @@ MIGRATIONS: list[list[str]] = [
             PRIMARY KEY (day, agent, bucket)
         )""",
     ],
+    [
+        # Storage usage over time. source is 'dashboard' or an agent name; series splits a group
+        # (S3 storage class or prefix) and is '' for plain drives. total_bytes is NULL when unbounded.
+        """CREATE TABLE storage_samples (
+            source TEXT NOT NULL,
+            kind TEXT NOT NULL CHECK (kind IN ('local', 'cloud', 'repo')),
+            name TEXT NOT NULL,
+            series TEXT NOT NULL DEFAULT '',
+            ts REAL NOT NULL,
+            used_bytes INTEGER NOT NULL,
+            total_bytes INTEGER,
+            PRIMARY KEY (source, kind, name, series, ts)
+        )""",
+        "CREATE INDEX idx_storage_samples_ts ON storage_samples(ts)",
+    ],
 ]
 
 

@@ -5,7 +5,7 @@ Replacement for the legacy dashboard (`../dashboard`, "v1"). Read-only web UI pl
 ## Rules specific to v2
 
 - The UI never changes state and has no login. The only writes are agent ingest (API key in `X-API-Key`). All configuration is YAML (`config/config.yaml`, `config/agents.yaml`) plus `.env` for secrets; do not add UI settings or admin endpoints.
-- Agent API contract: the v1 endpoints `/api/monitoring/events`, `/api/monitoring/target-purged` and `/api/heartbeat` must behave exactly as v1 so existing agents work unchanged (see `../dashboard/AGENTS_API_GUIDE.md`). New agent features are additive endpoints under `/api/v2/`, opt-in per agent.
+- Agent API contract: the v1 endpoints `/api/monitoring/events`, `/api/monitoring/target-purged` and `/api/heartbeat` must behave exactly as v1 so existing agents work unchanged (see `../dashboard/AGENTS_API_GUIDE.md`). New agent features are additive endpoints under `/api/v2/`, opt-in per agent (so far: `POST /api/v2/storage` with `{"samples": [{name, kind: local|cloud|repo, used_bytes, total_bytes?, series?, timestamp?}]}`).
 - Agent API keys are stored only as SHA-256 hashes in `agents.yaml`; never log or return a key or hash.
 - Treat agent-supplied text (messages, log lines, labels) as untrusted: render with `textContent`, cap sizes.
 

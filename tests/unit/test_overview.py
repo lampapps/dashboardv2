@@ -231,6 +231,12 @@ class TestOverviewHttp:
 
 
 class TestPage:
+    def test_static_files_are_revalidated_not_heuristically_cached(self, home):
+        db.init_db()
+        resp = create_app(config.load_config()).test_client().get("/static/js/ui.js")
+        assert "no-cache" in resp.headers["Cache-Control"]
+        assert resp.headers.get("ETag")
+
     def test_overview_page_renders_badges_escaped(self, home):
         db.init_db()
         settings_yaml = (

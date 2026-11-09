@@ -3,12 +3,14 @@
   --accent: #2563eb; --ok: #15803d; --warn: #b45309; --crit: #b91c1c; --unknown: #6b7280;
   --grid: rgba(0, 0, 0, 0.08); --hover: rgba(37, 99, 235, 0.06);
   --st-success: #16a34a; --st-failed: #dc2626; --st-stopped: #d97706; --st-running: #2563eb; --st-other: #9ca3af;
+  --c1: #2563eb; --c2: #ea580c; --c3: #16a34a; --c4: #9333ea; --c5: #0891b2; --c6: #db2777;
 }
 [data-theme="dark"] {
   --bg: #0f141a; --panel: #18202a; --text: #e6edf3; --muted: #9aa7b4; --border: #2a3541;
   --accent: #60a5fa; --ok: #4ade80; --warn: #fbbf24; --crit: #f87171; --unknown: #9ca3af;
   --grid: rgba(255, 255, 255, 0.09); --hover: rgba(96, 165, 250, 0.08);
   --st-success: #4ade80; --st-failed: #f87171; --st-stopped: #fbbf24; --st-running: #60a5fa; --st-other: #9ca3af;
+  --c1: #60a5fa; --c2: #fb923c; --c3: #4ade80; --c4: #c084fc; --c5: #22d3ee; --c6: #f472b6;
 }
 * { box-sizing: border-box; }
 html { color-scheme: light; }
@@ -80,7 +82,20 @@ footer { padding-top: 1rem; padding-bottom: 2rem; }
 .check { display: inline-flex; gap: .35rem; align-items: center; cursor: pointer; }
 
 .chart-box { position: relative; height: 260px; }
+.chart-box.short { height: 230px; }
 .chart-box canvas { width: 100% !important; height: 100% !important; }
+
+h3 { margin: 0 0 .5rem; font-size: .9rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1.25rem; }
+.usage { display: grid; gap: .6rem; margin-bottom: .8rem; }
+.usage:empty { display: none; }
+.usage-head, .usage-foot { display: flex; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
+.usage-name { font-weight: 600; overflow-wrap: anywhere; }
+.usage-foot .when { margin-left: 0; white-space: nowrap; }
+.meter { height: 8px; border-radius: 4px; background: var(--border); margin: .25rem 0; overflow: hidden; }
+.meter-fill { height: 100%; background: var(--accent); }
+.meter-fill.is-warn { background: var(--warn); }
+.meter-fill.is-crit { background: var(--crit); }
 
 .table-wrap { overflow-x: auto; }
 table.jobs { width: 100%; border-collapse: collapse; font-size: .9rem; }

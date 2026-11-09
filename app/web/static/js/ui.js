@@ -68,6 +68,42 @@ export function fmtPercent(fraction) {
   return fraction === null || fraction === undefined ? "–" : `${Math.round(fraction * 1000) / 10}%`;
 }
 
+const BYTE_UNITS = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
+
+export function fmtBytes(bytes) {
+  if (bytes === null || bytes === undefined || isNaN(bytes)) return "–";
+  let value = Math.abs(bytes);
+  let unit = 0;
+  while (value >= 1024 && unit < BYTE_UNITS.length - 1) { value /= 1024; unit += 1; }
+  const text = unit === 0 || value >= 100 ? Math.round(value).toString() : value.toFixed(1);
+  return `${bytes < 0 ? "-" : ""}${text} ${BYTE_UNITS[unit]}`;
+}
+
+// Seconds the timezone is ahead of UTC at `ts`.
+function tzOffset(ts, tz) {
+  const p = parts(ts, tz, "offset", {
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
+  return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) / 1000 - Math.floor(ts);
+}
+
+// Axis tick positions every `step` seconds, aligned to local midnight/hour boundaries in `tz`.
+export function tickValues(min, max, step, tz) {
+  const offset = tzOffset(max, tz);
+  const ticks = [];
+  for (let v = Math.ceil((min + offset) / step) * step - offset; v <= max; v += step) ticks.push(v);
+  return ticks;
+}
+
+export function fmtTick(ts, tz, intraday) {
+  if (intraday) {
+    const p = parts(ts, tz, "tick", { hour: "2-digit", minute: "2-digit" });
+    return `${p.hour}:${p.minute}`;
+  }
+  const p = parts(ts, tz, "tickday", { month: "short", day: "numeric" });
+  return `${p.month} ${p.day}`;
+}
+
 // ---------------------------------------------------------------- DOM helpers
 
 export function el(tag, className, text) {
@@ -185,5 +221,6 @@ export function initThemeToggle(button, onChange) {
     writeStore("theme", next);
     label();
     if (onChange) onChange(next);
+    document.dispatchEvent(new CustomEvent("themechange"));
   });
 }

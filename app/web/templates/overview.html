@@ -38,6 +38,32 @@
   <div class="sub" id="activity-note">Runs started per day.</div>
 </section>
 
+<section class="panel" id="storage-panel" hidden>
+  <div class="panel-head">
+    <h2>Storage</h2>
+    <div class="ranges" id="storage-ranges" role="group" aria-label="Storage range">
+      <button class="btn" type="button" data-range="24h" aria-pressed="false">24 h</button>
+      <button class="btn" type="button" data-range="7d" aria-pressed="false">7 d</button>
+      <button class="btn" type="button" data-range="30d" aria-pressed="false">30 d</button>
+      <button class="btn" type="button" data-range="90d" aria-pressed="false">90 d</button>
+      <button class="btn" type="button" data-range="1y" aria-pressed="false">1 y</button>
+    </div>
+  </div>
+  <div class="two-col">
+    <div id="local-box" hidden>
+      <h3>Local</h3>
+      <div class="usage" id="local-usage"></div>
+      <div class="chart-box short"><canvas id="c-local" aria-label="Local storage used over time" role="img"></canvas></div>
+    </div>
+    <div id="cloud-box" hidden>
+      <h3>Cloud</h3>
+      <div class="usage" id="cloud-usage"></div>
+      <div class="chart-box short"><canvas id="c-cloud" aria-label="Cloud storage used over time" role="img"></canvas></div>
+    </div>
+  </div>
+  <p class="sub" id="storage-note"></p>
+</section>
+
 <section class="panel">
   <div class="panel-head">
     <h2>Jobs</h2>
@@ -68,4 +94,5 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}"></script>
 <script type="module" src="{{ url_for('static', filename='js/overview.js', v=version) }}"></script>
+<script type="module" src="{{ url_for('static', filename='js/storage.js', v=version) }}"></script>
 {% endblock %}

@@ -19,6 +19,8 @@ def create_app(cfg: Optional[Config] = None) -> Flask:
     app = Flask(__name__)
     app.config["JABS_CONFIG"] = cfg
     app.config["MAX_CONTENT_LENGTH"] = MAX_REQUEST_BYTES
+    # Revalidate static files on every load (cheap 304s) so an upgrade is never masked by a stale cache.
+    app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
     app.extensions["jabs_agents"] = AgentRegistry()
 
     from . import api_ingest, api_ui, pages

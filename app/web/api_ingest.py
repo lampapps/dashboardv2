@@ -10,7 +10,7 @@ from typing import Optional
 from flask import Blueprint, current_app, jsonify, request
 from pydantic import ValidationError
 
-from .. import db, ingest, settings
+from .. import db, ingest, settings, storage
 from ..agents import AgentRegistry
 from ..config import AgentConfig
 
@@ -85,6 +85,26 @@ def target_purged():
     except sqlite3.Error:
         logger.exception("failed to record purge from agent %s", agent.name)
         return _error("Failed to record job target purge", 500)
+
+
+@bp.post("/api/v2/storage")
+def submit_storage():
+    """Agent-reported storage usage (a NAS volume, a restic repository); opt-in per agent."""
+    agent, error = _authenticate()
+    if error:
+        return error
+    payload, error = _parse(storage.AgentStoragePayload)
+    if error:
+        return error
+    now = time.time()
+    try:
+        with closing(db.connect()) as conn:
+            ingest.touch_agent(conn, agent.name, now)
+            stored = storage.store_samples(conn, storage.agent_samples(agent.name, payload, now))
+    except sqlite3.Error:
+        logger.exception("failed to record storage from agent %s", agent.name)
+        return _error("Failed to record storage samples", 500)
+    return jsonify({"success": True, "stored": stored}), 201
 
 
 @bp.get("/api/heartbeat")

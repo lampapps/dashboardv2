@@ -108,6 +108,11 @@ def _touch_agent(conn: sqlite3.Connection, agent: str, payload: EventPayload, no
     )
 
 
+def touch_agent(conn: sqlite3.Connection, agent: str, now: float) -> None:
+    """Record that an agent was heard from, without changing its reported version or type."""
+    _touch_agent(conn, agent, EventPayload(), now)
+
+
 def _find_or_create_run(conn: sqlite3.Connection, agent: str, p: EventPayload, now: float) -> int:
     row = None
     if p.run_id:

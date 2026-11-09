@@ -17,14 +17,22 @@ badges: []
 #    link: "http://kuma.example.lan/"
 
 storage:
+  drive_interval_minutes: 15
+  s3_interval_hours: 12     # S3 publishes bucket sizes once a day; listing a big bucket is slow and billable
+  aws_region: "us-east-1"   # default CloudWatch/S3 region; override per bucket with `region`
   # Local drives and mounts to sample for storage-over-time charts.
   drives:
     - path: "/"
       label: "Root"
-  # S3 buckets to sample (needs AWS credentials in .env). Leave empty to disable.
+  # S3 buckets (needs AWS credentials in .env). Leave empty to disable.
+  #   method: cloudwatch (default) = free daily size per storage class; needs cloudwatch:ListMetrics
+  #           and cloudwatch:GetMetricData. list = scans the bucket for sizes per top-level prefix
+  #           (needs s3:ListBucket; slower and billable).
   s3_buckets: []
 #    - bucket: "example-bucket"
 #      label: "Backups"
+#      method: cloudwatch
+#      region: "us-east-1"
 
 email:
   smtp_server: ""       # set to enable email; credentials: JABS_SMTP_USER / JABS_SMTP_PASS in .env

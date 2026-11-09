@@ -6,7 +6,7 @@ import time
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from . import activity, db
+from . import activity, db, storage
 from .config import Config
 
 logger = logging.getLogger(__name__)
@@ -16,8 +16,13 @@ def _rollup_daily(conn: sqlite3.Connection, cfg: Config, now: float) -> None:
     activity.rollup_daily(conn, ZoneInfo(cfg.timezone), now, cfg.retention.runs_days)
 
 
-# Order matters: rollups must run before any task that purges raw runs.
-TASKS = [("daily rollup", _rollup_daily)]
+# Order matters: rollups run before anything that purges raw runs; slow S3 sampling goes last.
+TASKS = [
+    ("daily rollup", _rollup_daily),
+    ("drive usage", storage.collect_drives),
+    ("storage purge", storage.purge_old),
+    ("s3 usage", storage.collect_s3),
+]
 
 
 def run_once(conn: sqlite3.Connection, cfg: Config, now: Optional[float] = None) -> None:
@@ -28,6 +33,6 @@ def run_once(conn: sqlite3.Connection, cfg: Config, now: Optional[float] = None)
     for name, task in TASKS:
         try:
             task(conn, cfg, now)
-        except sqlite3.Error:
+        except Exception:  # pylint: disable=broad-except  # tasks are independent; one bug must not stop the rest
             logger.exception("tick task '%s' failed", name)
     logger.info("tick complete")

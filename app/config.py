@@ -6,7 +6,7 @@ import os
 import secrets
 import tempfile
 from pathlib import Path
-from typing import Optional, Union
+from typing import Literal, Optional, Union
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -66,11 +66,25 @@ class Drive(_Model):
 class S3Bucket(_Model):
     bucket: str = Field(min_length=1)
     label: str = Field(min_length=1)
+    # cloudwatch: free daily size per storage class. list: scans the bucket, sizes per top-level prefix.
+    method: Literal["cloudwatch", "list"] = "cloudwatch"
+    region: Optional[str] = None
 
 
 class StorageConfig(_Model):
     drives: list[Drive] = Field(default_factory=list)
     s3_buckets: list[S3Bucket] = Field(default_factory=list)
+    aws_region: str = "us-east-1"
+    drive_interval_minutes: int = Field(15, ge=1)
+    s3_interval_hours: int = Field(12, ge=1)
+
+    @model_validator(mode="after")
+    def _unique_labels(self) -> "StorageConfig":
+        for kind, items in (("drive", self.drives), ("s3 bucket", self.s3_buckets)):
+            labels = [item.label for item in items]
+            if len(set(labels)) != len(labels):
+                raise ValueError(f"{kind} labels must be unique")
+        return self
 
 
 class DigestConfig(_Model):

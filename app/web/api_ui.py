@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 from flask import Blueprint, Response, current_app, jsonify, request
 
-from .. import db, jobs, overview
+from .. import db, jobs, overview, storage
 
 bp = Blueprint("ui", __name__, url_prefix="/api/ui")
 
@@ -36,6 +36,24 @@ def overview_data():
             last_tick = db.get_meta(conn, "last_tick_ts")
             payload["tick_age_s"] = None if last_tick is None else round(now - float(last_tick))
             response = jsonify(payload)
+    response.headers["ETag"] = etag
+    response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
+@bp.get("/storage")
+def storage_data():
+    """Current usage and history for the Overview's storage charts."""
+    cfg = current_app.config["JABS_CONFIG"]
+    range_key, _ = storage.range_seconds(request.args.get("range"))
+    now = time.time()
+    with closing(db.connect()) as conn:
+        rev = db.get_meta(conn, "rev", "0")
+        etag = f'"{rev}-{int(now // 60)}-{range_key}"'
+        if request.headers.get("If-None-Match") == etag:
+            response = Response(status=304)
+        else:
+            response = jsonify(storage.history(conn, cfg, now, range_key))
     response.headers["ETag"] = etag
     response.headers["Cache-Control"] = "no-cache"
     return response
