@@ -34,3 +34,8 @@ def job(name: str):
     if not _AGENT_NAME.match(name):
         abort(404)
     return render_template("job.html", version=settings.VERSION, page="agents", agent_name=name)
+
+
+@bp.get("/logs")
+def logs():
+    return render_template("logs.html", version=settings.VERSION, page="logs")

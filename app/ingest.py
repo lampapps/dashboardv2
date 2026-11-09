@@ -96,7 +96,7 @@ _PROGRESS_COLUMNS = {
 }
 
 
-def _touch_agent(conn: sqlite3.Connection, agent: str, payload: EventPayload, now: float) -> None:
+def _touch_agent(conn: sqlite3.Connection, agent: str, payload: EventPayload, now: float) -> bool:
     conn.execute(
         "INSERT INTO agent_state (name, version, agent_type, last_heartbeat, updated_at) "
         "VALUES (?, ?, ?, ?, ?) "
@@ -106,12 +106,12 @@ def _touch_agent(conn: sqlite3.Connection, agent: str, payload: EventPayload, no
         "agent_type = COALESCE(excluded.agent_type, agent_type)",
         (agent, payload.version, payload.agent_type, now, now),
     )
-    agent_status.record_contact(conn, agent, now)
+    return agent_status.record_contact(conn, agent, now)
 
 
-def touch_agent(conn: sqlite3.Connection, agent: str, now: float) -> None:
-    """Record that an agent was heard from, without changing its reported version or type."""
-    _touch_agent(conn, agent, EventPayload(), now)
+def touch_agent(conn: sqlite3.Connection, agent: str, now: float) -> bool:
+    """Record that an agent was heard from; True if that changed its logged status."""
+    return _touch_agent(conn, agent, EventPayload(), now)
 
 
 def _find_or_create_run(conn: sqlite3.Connection, agent: str, p: EventPayload, now: float) -> int:

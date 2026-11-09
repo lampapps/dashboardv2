@@ -54,3 +54,4 @@ retention:
   status_days: 365       # agent up/down history
   storage_days: 365      # storage samples
   log_lines_per_log: 5000
+  log_days: 30           # agent log lines older than this are dropped

@@ -116,6 +116,26 @@ MIGRATIONS: list[list[str]] = [
         "ALTER TABLE agent_state ADD COLUMN status TEXT",
         "ALTER TABLE agent_state ADD COLUMN status_since REAL",
     ],
+    [
+        # Agent log tails. id is the cursor the viewer follows; batches make agent retries idempotent.
+        """CREATE TABLE log_lines (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent TEXT NOT NULL,
+            log TEXT NOT NULL,
+            ts REAL NOT NULL,
+            level TEXT,
+            text TEXT NOT NULL
+        )""",
+        "CREATE INDEX idx_log_lines_stream ON log_lines(agent, log, id)",
+        "CREATE INDEX idx_log_lines_ts ON log_lines(ts)",
+        """CREATE TABLE log_batches (
+            agent TEXT NOT NULL,
+            log TEXT NOT NULL,
+            batch_id TEXT NOT NULL,
+            ts REAL NOT NULL,
+            PRIMARY KEY (agent, log, batch_id)
+        )""",
+    ],
 ]
 
 
@@ -194,11 +214,12 @@ def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
     )
 
 
-def bump_rev(conn: sqlite3.Connection) -> None:
-    """Advance the data revision the UI uses for ETags; call inside the writing transaction."""
+def bump_rev(conn: sqlite3.Connection, key: str = "rev") -> None:
+    """Advance a data revision the UI uses for ETags; call inside the writing transaction."""
     conn.execute(
-        "INSERT INTO meta (key, value) VALUES ('rev', '1') "
-        "ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1"
+        "INSERT INTO meta (key, value) VALUES (?, '1') "
+        "ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1",
+        (key,),
     )
 
 

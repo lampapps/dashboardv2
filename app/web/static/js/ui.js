@@ -68,6 +68,24 @@ export function fmtPercent(fraction) {
   return fraction === null || fraction === undefined ? "–" : `${Math.round(fraction * 1000) / 10}%`;
 }
 
+// Splits `text` into [{text, match}] segments around case-insensitive occurrences of `query`.
+export function splitMatches(text, query) {
+  if (!query) return [{ text, match: false }];
+  const segments = [];
+  const haystack = text.toLowerCase();
+  const needle = query.toLowerCase();
+  let from = 0;
+  for (;;) {
+    const at = haystack.indexOf(needle, from);
+    if (at < 0) break;
+    if (at > from) segments.push({ text: text.slice(from, at), match: false });
+    segments.push({ text: text.slice(at, at + needle.length), match: true });
+    from = at + needle.length;
+  }
+  if (from < text.length) segments.push({ text: text.slice(from), match: false });
+  return segments.length ? segments : [{ text, match: false }];
+}
+
 const BYTE_UNITS = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
 
 export function fmtBytes(bytes, digits) {

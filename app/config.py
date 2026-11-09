@@ -121,6 +121,7 @@ class RetentionConfig(_Model):
     status_days: int = Field(365, ge=1)
     storage_days: int = Field(365, ge=1)
     log_lines_per_log: int = Field(5000, ge=100)
+    log_days: int = Field(30, ge=1)
 
 
 class Config(_Model):
