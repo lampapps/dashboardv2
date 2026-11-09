@@ -187,6 +187,13 @@ export function reconcile(parent, items, { key, create, update }) {
   for (const [k, node] of existing) if (!seen.has(k)) node.remove();
 }
 
+// Rewrites every [data-ts] element under `root` as a relative time ("5 min ago"), keeping an optional data-prefix.
+export function refreshRelative(root, now) {
+  root.querySelectorAll("[data-ts]").forEach((node) => {
+    setText(node, (node.dataset.prefix || "") + fmtRelative(Number(node.dataset.ts), now));
+  });
+}
+
 // ---------------------------------------------------------------- fetching and polling
 
 // Returns {notModified: true} on 304, otherwise {data, etag}. Throws on network or HTTP errors.

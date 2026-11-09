@@ -5,6 +5,8 @@ import {
   fmtDateTime, fmtClock, fmtShort, fmtDayLabel, fmtDuration, fmtRelative, fmtPercent, fmtBytes, fmtTick,
   niceByteTicks, tickValues, reconcile,
 } from "../../app/web/static/js/ui.js";
+import { bucketOf, agentHref, jobHref } from "../../app/web/static/js/shared.js";
+import { totalsText } from "../../app/web/static/js/jobs-table.js";
 
 // 2026-01-15 12:00:00 UTC = 17:30 in Asia/Kolkata
 const TS = Date.UTC(2026, 0, 15, 12, 0, 0) / 1000;
@@ -82,6 +84,27 @@ test("nice byte ticks are evenly spaced round numbers of the largest unit", () =
 test("explicit digits override the automatic precision", () => {
   assert.equal(fmtBytes(3.25 * 1024 ** 4, 2), "3.25 TiB");
   assert.equal(fmtBytes(512, 2), "512 B");
+});
+
+test("run statuses fold into display buckets like the server does", () => {
+  assert.equal(bucketOf("completed"), "success");
+  assert.equal(bucketOf("purged"), "success");
+  assert.equal(bucketOf("error"), "failed");
+  assert.equal(bucketOf("running"), "running");
+  assert.equal(bucketOf("skipped"), "other");
+  assert.equal(bucketOf(undefined), "other");
+});
+
+test("links escape agent and job names", () => {
+  assert.equal(agentHref("nas 1"), "/agents/nas%201");
+  assert.equal(jobHref("nas1", "photos & docs/2026"), "/agents/nas1/job?name=photos%20%26%20docs%2F2026");
+  assert.equal(jobHref("nas1", ""), "/agents/nas1/job?name=");
+});
+
+test("status totals text groups statuses and omits zeros", () => {
+  assert.equal(totalsText({ success: 5, completed: 1, failed: 1, error: 1 }), "6 ok · 2 failed");
+  assert.equal(totalsText({ running: 1 }), "1 running");
+  assert.equal(totalsText({}), "–");
 });
 
 test("percent", () => {

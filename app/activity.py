@@ -19,6 +19,11 @@ _BUCKET_OF = {
     "running": "running",
 }
 
+# Statuses belonging to each display bucket ('other' is everything not listed here).
+BUCKET_STATUSES = {
+    b: tuple(s for s, member in _BUCKET_OF.items() if member == b) for b in ("success", "failed", "stopped", "running")
+}
+
 
 def bucket(status: str) -> str:
     return _BUCKET_OF.get(status, "other")

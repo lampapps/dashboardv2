@@ -238,9 +238,9 @@ async function refresh(force) {
     const result = await getJson(`/api/ui/storage?range=${state.range}`, force ? null : state.etag);
     if (mine !== requestSeq || result.notModified) return;
     state.data = result.data;
-    state.etag = result.etag;
     state.tz = result.data.timezone || state.tz;
     render(result.data);
+    state.etag = result.etag;
   } catch (e) {
     // The Overview's connection banner already reports a failing service; keep the last charts.
   }

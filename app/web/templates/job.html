@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Job - {{ agent_name }} - JABS{% endblock %}
+
+{% block content %}
+<nav class="crumbs sub" aria-label="Breadcrumb">
+  <a href="{{ url_for('pages.agents') }}">Agents</a> <span aria-hidden="true">›</span>
+  <a href="{{ url_for('pages.agent', name=agent_name) }}">{{ agent_name }}</a> <span aria-hidden="true">›</span>
+  <span id="crumb-job"></span>
+</nav>
+
+<section class="panel" id="job" data-agent="{{ agent_name }}">
+  <div class="panel-head">
+    <div class="title-row">
+      <h2 class="title" id="j-name"></h2>
+      <span class="pill" id="j-pill"></span>
+      <span class="sub" id="j-meta"></span>
+    </div>
+  </div>
+  <div class="cards cards-flush" id="cards" aria-label="Summary">
+    <div class="card" id="card-runs"><div class="label">Runs kept</div><div class="value" id="v-runs">–</div><div class="note" id="n-runs"></div></div>
+    <div class="card" id="card-rate"><div class="label">Success rate</div><div class="value" id="v-rate">–</div><div class="note">of finished runs</div></div>
+    <div class="card" id="card-avg"><div class="label">Avg duration</div><div class="value value-sm" id="v-avg">–</div><div class="note">successful runs</div></div>
+    <div class="card" id="card-bytes"><div class="label">Data processed</div><div class="value" id="v-bytes">–</div><div class="note">all kept runs</div></div>
+    <div class="card" id="card-last"><div class="label">Last run</div><div class="value value-sm" id="v-last">–</div><div class="note" id="n-last"></div></div>
+    <div class="card" id="card-next"><div class="label" id="l-next">Next run</div><div class="value value-sm" id="v-next">–</div><div class="note" id="n-next"></div></div>
+  </div>
+  <h3>Duration and size of recent runs</h3>
+  <div class="chart-box short"><canvas id="c-trend" aria-label="Duration and size of recent runs" role="img"></canvas></div>
+  <div class="sub" id="trend-note"></div>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Runs</h2>
+    <div class="filters">
+      <label class="sub">Status
+        <select id="f-status" class="input">
+          <option value="">All</option><option value="success">Success</option><option value="failed">Failed</option>
+          <option value="stopped">Stopped</option><option value="running">Running</option><option value="other">Other</option>
+        </select>
+      </label>
+      <label class="sub">Target <select id="f-target" class="input"><option value="">All</option></select></label>
+      <label class="sub">Since
+        <select id="f-since" class="input">
+          <option value="">All kept</option><option value="24h">24 hours</option><option value="7d">7 days</option><option value="30d">30 days</option>
+        </select>
+      </label>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table class="jobs runs" id="runs">
+      <thead>
+        <tr>
+          <th scope="col">Started</th><th scope="col">Target</th><th scope="col">Status</th>
+          <th scope="col">Duration</th><th scope="col" class="num">Files</th><th scope="col" class="num">Size</th>
+          <th scope="col" class="num">Rate</th><th scope="col">Message</th>
+        </tr>
+      </thead>
+      <tbody id="runs-body"></tbody>
+    </table>
+  </div>
+  <p class="sub empty" id="runs-empty" hidden>No runs match the filters.</p>
+  <div class="pager">
+    <span class="sub" id="pager-text"></span>
+    <div class="pager-nav">
+      <button class="btn" type="button" id="p-first">« First</button>
+      <button class="btn" type="button" id="p-prev">‹ Newer</button>
+      <button class="btn" type="button" id="p-next">Older ›</button>
+      <button class="btn" type="button" id="p-last">Last »</button>
+      <select id="p-size" class="input" aria-label="Runs per page">
+        <option value="25">25</option><option value="50">50</option><option value="100">100</option>
+      </select>
+    </div>
+  </div>
+</section>
+
+<dialog id="run-dialog" aria-labelledby="d-title">
+  <div class="dialog-head">
+    <h2 id="d-title">Run</h2>
+    <button class="btn" type="button" id="d-close">Close</button>
+  </div>
+  <dl class="facts" id="d-facts"></dl>
+  <h3>Events</h3>
+  <div class="table-wrap">
+    <table class="jobs events" id="d-events">
+      <thead><tr><th scope="col">Time</th><th scope="col">Stage</th><th scope="col">Type</th><th scope="col">Message</th></tr></thead>
+      <tbody id="d-events-body"></tbody>
+    </table>
+  </div>
+  <p class="sub" id="d-note"></p>
+</dialog>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}"></script>
+<script type="module" src="{{ url_for('static', filename='js/job.js', v=version) }}"></script>
+{% endblock %}

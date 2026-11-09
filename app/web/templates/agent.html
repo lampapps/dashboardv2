@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}{{ agent_name }} - JABS{% endblock %}
+
+{% block content %}
+<nav class="crumbs sub" aria-label="Breadcrumb"><a href="{{ url_for('pages.agents') }}">Agents</a> <span aria-hidden="true">›</span> <span>{{ agent_name }}</span></nav>
+
+<section class="panel" id="agent" data-agent="{{ agent_name }}">
+  <div class="panel-head">
+    <div class="title-row">
+      <h2 class="title" id="a-name">{{ agent_name }}</h2>
+      <span class="pill" id="a-pill"></span>
+      <span class="sub" id="a-meta"></span>
+    </div>
+    <div class="ranges" id="agent-ranges" role="group" aria-label="Range">
+      <button class="btn" type="button" data-range="7d" aria-pressed="false">7 d</button>
+      <button class="btn" type="button" data-range="30d" aria-pressed="false">30 d</button>
+      <button class="btn" type="button" data-range="90d" aria-pressed="false">90 d</button>
+      <button class="btn" type="button" data-range="1y" aria-pressed="false">1 y</button>
+    </div>
+  </div>
+  <div class="uptime-row"><span class="uptime-value tnum" id="a-uptime">–</span><span class="sub" id="a-uptime-note"></span></div>
+  <div class="timeline" id="a-timeline" role="img"></div>
+  <div class="timeline-axis sub"><span id="a-axis-start"></span><span>now</span></div>
+  <dl class="facts facts-wide">
+    <dt>Last contact</dt><dd id="a-contact">–</dd>
+    <dt>Grace period</dt><dd id="a-grace">–</dd>
+    <dt>Offline alerts</dt><dd id="a-alerts">–</dd>
+    <dt>Allowed IP</dt><dd id="a-ip">–</dd>
+    <dt>Notes</dt><dd id="a-notes">–</dd>
+    <dt>Schedules</dt><dd id="a-schedules">–</dd>
+  </dl>
+</section>
+
+<section class="cards" id="cards" aria-label="Summary">
+  <div class="card" id="card-runs"><div class="label">Runs</div><div class="value" id="v-runs">–</div><div class="note" id="n-runs"></div></div>
+  <div class="card" id="card-success"><div class="label">Succeeded</div><div class="value" id="v-success">–</div><div class="note" id="n-success"></div></div>
+  <div class="card" id="card-failed"><div class="label">Failed</div><div class="value" id="v-failed">–</div><div class="note" id="n-failed"></div></div>
+  <div class="card" id="card-running"><div class="label">Running now</div><div class="value" id="v-running">–</div><div class="note" id="n-running"></div></div>
+  <div class="card" id="card-bytes"><div class="label">Data processed</div><div class="value" id="v-bytes">–</div><div class="note" id="n-bytes"></div></div>
+  <div class="card" id="card-avg"><div class="label">Avg duration</div><div class="value" id="v-avg">–</div><div class="note">successful runs</div></div>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>Job activity</h2></div>
+  <div class="chart-box"><canvas id="c-activity" aria-label="Runs per day by outcome" role="img"></canvas></div>
+  <div class="sub" id="activity-note"></div>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Jobs</h2>
+    <div class="filters">
+      <input id="job-search" class="input" type="search" placeholder="Filter jobs" aria-label="Filter jobs" autocomplete="off">
+      <span class="sub" id="jobs-count"></span>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table class="jobs" id="jobs">
+      <thead>
+        <tr>
+          <th scope="col" aria-sort="none"><button class="sort" type="button" data-sort="job">Job</button></th>
+          <th scope="col" aria-sort="none"><button class="sort" type="button" data-sort="last">Last run</button></th>
+          <th scope="col" aria-sort="none"><button class="sort" type="button" data-sort="next">Next run</button></th>
+          <th scope="col" aria-sort="none"><button class="sort" type="button" data-sort="status">Recent runs</button></th>
+          <th scope="col" class="col-totals">Totals</th>
+        </tr>
+      </thead>
+      <tbody id="jobs-body"></tbody>
+    </table>
+  </div>
+  <p class="sub empty" id="jobs-empty" hidden></p>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}"></script>
+<script type="module" src="{{ url_for('static', filename='js/agent.js', v=version) }}"></script>
+{% endblock %}

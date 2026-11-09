@@ -1,16 +1,12 @@
 import {
   el, setText, setClass, setStyle, setTitle, setHidden, setData, readStore, writeStore, reconcile, getJson, poll,
-  initThemeToggle, fmtClock, fmtDateTime, fmtDuration, fmtRelative, fmtShort, fmtTick, fmtPercent,
+  initThemeToggle, refreshRelative, fmtClock, fmtDateTime, fmtRelative, fmtShort, fmtTick, fmtPercent,
 } from "./ui.js";
+import { AGENT_STATUS_LABEL as STATUS_LABEL, agentHref, bucketOf, syncTimeline } from "./shared.js";
 
 const $ = (id) => document.getElementById(id);
 const POLL_MS = 15000;
 const RANGES = ["24h", "7d", "30d", "90d"];
-const STATUS_LABEL = { up: "Up", down: "Down", new: "New", disabled: "Disabled", unknown: "No data" };
-const BUCKET_OF = {
-  success: "success", completed: "success", purged: "success",
-  failed: "failed", error: "failed", stopped: "stopped", running: "running",
-};
 
 const state = {
   range: RANGES.includes(readStore("agentRange")) ? readStore("agentRange") : "7d",
@@ -24,23 +20,6 @@ let requestSeq = 0;
 
 const nowEstimate = () => Date.now() / 1000 + state.clockOffset;
 const rangeIsIntraday = () => state.range === "24h";
-
-// ---------------------------------------------------------------- timeline
-
-// Segments are positioned by percentage of the range, and reused in place on every update.
-function syncTimeline(container, data, agent) {
-  const total = data.end - data.start;
-  const spans = agent.spans;
-  while (container.children.length > spans.length) container.lastElementChild.remove();
-  while (container.children.length < spans.length) container.append(el("span", "seg"));
-  spans.forEach(([begin, end, status], i) => {
-    const seg = container.children[i];
-    setClass(seg, "seg seg-" + status);
-    setStyle(seg, "left", `${((begin - data.start) / total) * 100}%`);
-    setStyle(seg, "width", `${((end - begin) / total) * 100}%`);
-    setTitle(seg, `${STATUS_LABEL[status]} · ${fmtDateTime(begin, state.tz)} to ${fmtDateTime(end, state.tz)} (${fmtDuration(end - begin)})`);
-  });
-}
 
 // ---------------------------------------------------------------- cards
 
@@ -56,7 +35,9 @@ function createCard() {
 
   const head = el("div", "agent-head");
   const name = el("h3", "agent-name");
+  const nameLink = el("a");
   const pill = el("span", "pill");
+  name.append(nameLink);
   head.append(name, pill);
   const meta = el("div", "sub");
 
@@ -89,14 +70,15 @@ function createCard() {
   details.append(cfg);
 
   card.append(head, meta, uptimeRow, timeline, axis, facts, details);
-  card._refs = { name, pill, meta, uptime, uptimeLabel, timeline, axisStart, lastContact, jobs, lastRunPill, lastRunText, lastRun, ...refs };
+  card._refs = { nameLink, pill, meta, uptime, uptimeLabel, timeline, axisStart, lastContact, jobs, lastRunPill, lastRunText, lastRun, ...refs };
   return card;
 }
 
 function updateCard(card, agent) {
   const r = card._refs;
   const data = state.data;
-  setText(r.name, agent.name);
+  setText(r.nameLink, agent.name);
+  if (r.nameLink.getAttribute("href") !== agentHref(agent.name)) r.nameLink.href = agentHref(agent.name);
   setText(r.pill, STATUS_LABEL[agent.status]);
   setClass(r.pill, "pill pill-" + agent.status);
   const meta = [agent.agent_type, agent.version ? "v" + agent.version : null];
@@ -105,7 +87,7 @@ function updateCard(card, agent) {
 
   setText(r.uptime, agent.uptime === null ? "–" : fmtPercent(agent.uptime));
   setText(r.uptimeLabel, agent.uptime === null ? "no up/down history in this range" : `up over the last ${data.range}`);
-  syncTimeline(r.timeline, data, agent);
+  syncTimeline(r.timeline, agent.spans, data.start, data.end, state.tz);
   setText(r.axisStart, fmtTick(data.start, state.tz, rangeIsIntraday()));
 
   if (agent.last_heartbeat) {
@@ -121,7 +103,7 @@ function updateCard(card, agent) {
   const run = agent.last_run;
   setHidden(r.lastRunPill, !run);
   if (run) {
-    const bucket = BUCKET_OF[run.status] || "other";
+    const bucket = bucketOf(run.status);
     setText(r.lastRunPill, run.status);
     setClass(r.lastRunPill, "pill pill-" + bucket);
     const prefix = ` ${run.job_name || "(unnamed)"} · `;
@@ -143,21 +125,13 @@ function updateCard(card, agent) {
 
 // ---------------------------------------------------------------- render and fetch
 
-function refreshRelative() {
-  const now = nowEstimate();
-  document.querySelectorAll("#agent-grid [data-ts]").forEach((node) => {
-    const prefix = node.dataset.prefix || "";
-    setText(node, prefix + fmtRelative(Number(node.dataset.ts), now));
-  });
-}
-
 function render(data) {
   reconcile($("agent-grid"), data.agents, { key: (a) => a.name, create: createCard, update: updateCard });
   setHidden($("agents-empty"), data.agents.length > 0);
   const active = data.agents.filter((a) => a.status !== "disabled");
   const up = active.filter((a) => a.status === "up").length;
   setText($("agents-summary"), active.length ? `${up} of ${active.length} reporting` : "");
-  refreshRelative();
+  refreshRelative($("agent-grid"), nowEstimate());
 }
 
 function renderBanner() {
@@ -179,10 +153,10 @@ async function refresh(force) {
     state.connectionError = false;
     if (!result.notModified) {
       state.data = result.data;
-      state.etag = result.etag;
       state.tz = result.data.timezone;
       state.clockOffset = result.data.now - Date.now() / 1000;
       render(result.data);
+      state.etag = result.etag; // only after a good render, so a failed one is retried
     }
     renderBanner();
     setText($("updated"), "Updated " + fmtClock(nowEstimate(), state.tz));
@@ -210,4 +184,4 @@ document.querySelectorAll("#agent-ranges button").forEach((b) => {
   });
 });
 poll(() => refresh(false), POLL_MS);
-setInterval(() => { if (!document.hidden) refreshRelative(); }, 15000);
+setInterval(() => { if (!document.hidden) refreshRelative($("agent-grid"), nowEstimate()); }, 15000);

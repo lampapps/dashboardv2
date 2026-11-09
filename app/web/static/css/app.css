@@ -13,6 +13,7 @@
   --c1: #60a5fa; --c2: #fb923c; --c3: #4ade80; --c4: #c084fc; --c5: #22d3ee; --c6: #f472b6;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { color-scheme: light; }
 [data-theme="dark"] { color-scheme: dark; }
 body {
@@ -175,3 +176,39 @@ th[aria-sort="descending"] .sort::after { content: " \25BC"; font-size: .7em; }
 .facts dd { margin: 0; overflow-wrap: anywhere; white-space: pre-line; }
 .config summary { cursor: pointer; color: var(--muted); }
 .config[open] summary { margin-bottom: .5rem; }
+
+.crumbs { margin: .25rem 0 .6rem; }
+.crumbs a { text-decoration: none; }
+.crumbs a:hover { text-decoration: underline; }
+.title-row { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.title { font-size: 1.3rem; overflow-wrap: anywhere; }
+.facts-wide { margin-top: .75rem; }
+.cards-flush { margin-bottom: 1rem; }
+.value-sm { font-size: 1.2rem; padding-top: .35rem; }
+a.job-name { color: var(--text); text-decoration: none; display: block; }
+a.job-name:hover { text-decoration: underline; color: var(--accent); }
+a.block-link { display: block; text-decoration: none; }
+a.block-link:hover { text-decoration: underline; }
+.agent-name a { color: inherit; text-decoration: none; }
+.agent-name a:hover { color: var(--accent); }
+
+.runs td.num, .runs th.num { text-align: right; }
+.runs tr.clickable { cursor: pointer; }
+.runs td.msg { max-width: 24rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.runs .progress { margin-top: .3rem; min-width: 5rem; }
+select.input { min-width: 0; padding: .25rem .4rem; }
+.filters label { display: inline-flex; gap: .35rem; align-items: center; }
+.pager { display: flex; flex-wrap: wrap; gap: .6rem 1rem; align-items: center; justify-content: space-between; margin-top: .7rem; }
+.pager-nav { display: flex; gap: .3rem; flex-wrap: wrap; align-items: center; }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn:disabled:hover { border-color: var(--border); }
+
+dialog {
+  background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 10px;
+  width: min(900px, 94vw); max-height: 90vh; padding: 1rem 1.25rem;
+}
+dialog::backdrop { background: rgba(0, 0, 0, .55); }
+.dialog-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: .75rem; }
+#d-facts { margin-bottom: 1rem; }
+#d-facts dd { white-space: normal; }
+.events td.msg-wrap { overflow-wrap: anywhere; }
