@@ -70,13 +70,34 @@ export function fmtPercent(fraction) {
 
 const BYTE_UNITS = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
 
-export function fmtBytes(bytes) {
+export function fmtBytes(bytes, digits) {
   if (bytes === null || bytes === undefined || isNaN(bytes)) return "–";
   let value = Math.abs(bytes);
   let unit = 0;
   while (value >= 1024 && unit < BYTE_UNITS.length - 1) { value /= 1024; unit += 1; }
-  const text = unit === 0 || value >= 100 ? Math.round(value).toString() : value.toFixed(1);
+  let text;
+  if (digits !== undefined) text = value.toFixed(unit === 0 ? 0 : digits);
+  else text = unit === 0 || value >= 100 ? Math.round(value).toString() : value.toFixed(1);
   return `${bytes < 0 ? "-" : ""}${text} ${BYTE_UNITS[unit]}`;
+}
+
+// Evenly spaced axis ticks on round numbers of the largest binary unit in range (e.g. 3.0, 3.2, 3.4 TiB).
+// `digits` is how many decimals labels need so neighbouring ticks never read the same.
+export function niceByteTicks(min, max, target = 5) {
+  if (!(max > min)) return { ticks: [], digits: 0 };
+  let unit = 1;
+  while (unit * 1024 <= max && unit < 1024 ** 5) unit *= 1024;
+  const rough = (max - min) / unit / target;
+  const magnitude = 10 ** Math.floor(Math.log10(rough));
+  const norm = rough / magnitude;
+  const nice = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10;
+  const stepInUnit = nice * magnitude;
+  const step = stepInUnit * unit;
+  const first = Math.ceil(min / step - 1e-9);
+  const ticks = [];
+  for (let i = first; i * step <= max * (1 + 1e-9); i += 1) ticks.push(i * step || 0); // `|| 0` avoids -0
+  const digits = stepInUnit >= 1 ? 0 : stepInUnit >= 0.1 ? 1 : 2;
+  return { ticks, digits };
 }
 
 // Seconds the timezone is ahead of UTC at `ts`.

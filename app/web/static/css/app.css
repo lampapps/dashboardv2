@@ -86,9 +86,12 @@ footer { padding-top: 1rem; padding-bottom: 2rem; }
 .chart-box canvas { width: 100% !important; height: 100% !important; }
 
 h3 { margin: 0 0 .5rem; font-size: .9rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
-.two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1.25rem; }
-.usage { display: grid; gap: .6rem; margin-bottom: .8rem; }
-.usage:empty { display: none; }
+.two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 0 1.25rem; }
+/* Each column spans title / usage list / chart rows of the shared grid, so the two charts line up. */
+.two-col > div { display: grid; grid-template-rows: subgrid; grid-row: span 3; row-gap: .5rem; }
+.two-col > div[hidden] { display: none; }
+.two-col h3 { margin: 0; }
+.usage { display: grid; gap: .6rem; align-content: start; margin-bottom: .3rem; }
 .usage-head, .usage-foot { display: flex; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
 .usage-name { font-weight: 600; overflow-wrap: anywhere; }
 .usage-foot .when { margin-left: 0; white-space: nowrap; }

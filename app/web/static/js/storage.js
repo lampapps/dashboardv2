@@ -1,7 +1,7 @@
 // Overview storage panel: current usage plus usage over time for local drives and cloud buckets.
 import {
   el, setText, setClass, setStyle, setHidden, setData, readStore, writeStore, reconcile, getJson, poll,
-  cssVar, fmtBytes, fmtDateTime, fmtRelative, fmtTick, tickValues,
+  cssVar, fmtBytes, fmtDateTime, fmtRelative, fmtTick, niceByteTicks, tickValues,
 } from "./ui.js";
 
 const $ = (id) => document.getElementById(id);
@@ -113,6 +113,7 @@ function buildChart(kind) {
   const text = cssVar("--muted");
   const grid = cssVar("--grid");
   const tz = () => state.tz;
+  let digits = 1;
   const chart = new Chart(canvas, {
     type: "line",
     data: { datasets: [] },
@@ -131,8 +132,15 @@ function buildChart(kind) {
         },
         y: {
           stacked, beginAtZero: stacked, grace: stacked ? 0 : "8%",
-          ticks: { color: text, callback: (v) => fmtBytes(v) },
+          ticks: { color: text, callback: (v) => (v === 0 ? "0" : fmtBytes(v, digits)) },
           grid: { color: grid },
+          afterBuildTicks(scale) {
+            const nice = niceByteTicks(scale.min, scale.max);
+            if (nice.ticks.length >= 2) {
+              digits = nice.digits;
+              scale.ticks = nice.ticks.map((value) => ({ value }));
+            }
+          },
         },
       },
       plugins: {

@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import {
   fmtDateTime, fmtClock, fmtShort, fmtDayLabel, fmtDuration, fmtRelative, fmtPercent, fmtBytes, fmtTick,
-  tickValues, reconcile,
+  niceByteTicks, tickValues, reconcile,
 } from "../../app/web/static/js/ui.js";
 
 // 2026-01-15 12:00:00 UTC = 17:30 in Asia/Kolkata
@@ -58,6 +58,30 @@ test("tick values fall on local midnights of the given timezone", () => {
 test("tick labels switch between clock times and calendar days", () => {
   assert.equal(fmtTick(TS, "Asia/Kolkata", true), "17:30");
   assert.equal(fmtTick(TS, "Asia/Kolkata", false), "Jan 15");
+});
+
+test("nice byte ticks are evenly spaced round numbers of the largest unit", () => {
+  const GiB = 1024 ** 3;
+  const TiB = 1024 ** 4;
+  const a = niceByteTicks(0, 10 * GiB);
+  assert.deepEqual(a.ticks.map((t) => t / GiB), [0, 2, 4, 6, 8, 10]);
+  assert.equal(a.digits, 0);
+
+  const b = niceByteTicks(3.0 * TiB, 3.6 * TiB);
+  const labels = b.ticks.map((t) => fmtBytes(t, b.digits));
+  assert.ok(b.ticks.length >= 3 && b.ticks.length <= 10);
+  assert.equal(new Set(labels).size, labels.length, "neighbouring ticks must read differently");
+  assert.ok(b.ticks.every((t) => t >= 3.0 * TiB * 0.999 && t <= 3.6 * TiB * 1.001));
+
+  const gaps = b.ticks.slice(1).map((t, i) => t - b.ticks[i]);
+  assert.ok(gaps.every((g) => Math.abs(g - gaps[0]) < 1));
+
+  assert.deepEqual(niceByteTicks(5, 5).ticks, []);
+});
+
+test("explicit digits override the automatic precision", () => {
+  assert.equal(fmtBytes(3.25 * 1024 ** 4, 2), "3.25 TiB");
+  assert.equal(fmtBytes(512, 2), "512 B");
 });
 
 test("percent", () => {
