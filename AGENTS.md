@@ -29,4 +29,5 @@ Replacement for the legacy dashboard (`../dashboard`, "v1"). Read-only web UI pl
 
 - pytest (`requirements-dev.txt`). `tests/unit` is fast and isolated (use the `home` fixture). `tests/contract` is a black-box agent-API suite that runs against a throwaway copy of v1 and v2: `JABS_CONTRACT_BACKENDS=v1,v2` (default both).
 - `@pytest.mark.v1_bug(reason)` marks behavior v1 gets wrong; it is a strict xfail on v1 and must pass on v2.
+- `tests/js` holds Node's built-in `node --test` tests for the pure helpers in `static/js/ui.js` (pytest runs them when `node` is installed). Keep DOM-free logic in `ui.js` so it stays testable.
 - Add or update tests with every non-trivial change; run `.venv/bin/python -m pytest -q` before finishing.

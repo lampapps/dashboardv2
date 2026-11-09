@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Overview - JABS{% endblock %}
+
+{% block badges %}
+{% if badges %}
+<section class="badges" aria-label="Service status">
+  {% for badge in badges %}
+    {% if badge.link %}<a href="{{ badge.link }}" target="_blank" rel="noopener noreferrer">{% endif %}
+    <img class="badge-img" src="{{ badge.image_url }}" alt="{{ badge.label }}" height="20" data-badge>
+    {% if badge.link %}</a>{% endif %}
+  {% endfor %}
+</section>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<section class="cards" id="cards" aria-label="Summary">
+  <div class="card" id="card-agents"><div class="label">Agents reporting</div><div class="value" id="v-agents">–</div><div class="note" id="n-agents"></div></div>
+  <div class="card" id="card-running"><div class="label">Running now</div><div class="value" id="v-running">–</div><div class="note" id="n-running"></div></div>
+  <div class="card" id="card-success"><div class="label">Succeeded</div><div class="value" id="v-success">–</div><div class="note">last 24 hours</div></div>
+  <div class="card" id="card-failed"><div class="label">Failed</div><div class="value" id="v-failed">–</div><div class="note">last 24 hours</div></div>
+  <div class="card" id="card-failing"><div class="label">Jobs failing</div><div class="value" id="v-failing">–</div><div class="note" id="n-failing"></div></div>
+  <div class="card" id="card-rate"><div class="label">Success rate</div><div class="value" id="v-rate">–</div><div class="note">last 7 days</div></div>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Job activity</h2>
+    <div class="ranges" id="ranges" role="group" aria-label="Range">
+      <button class="btn" type="button" data-days="7" aria-pressed="false">7 d</button>
+      <button class="btn" type="button" data-days="14" aria-pressed="false">14 d</button>
+      <button class="btn" type="button" data-days="30" aria-pressed="false">30 d</button>
+      <button class="btn" type="button" data-days="90" aria-pressed="false">90 d</button>
+      <button class="btn" type="button" data-days="365" aria-pressed="false">1 y</button>
+    </div>
+  </div>
+  <div class="chart-box"><canvas id="c-activity" aria-label="Runs per day by outcome" role="img"></canvas></div>
+  <div class="sub" id="activity-note">Runs started per day.</div>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Jobs</h2>
+    <div class="filters">
+      <input id="job-search" class="input" type="search" placeholder="Filter jobs" aria-label="Filter jobs" autocomplete="off">
+      <label class="check"><input id="problems-only" type="checkbox"> Problems only</label>
+      <span class="sub" id="jobs-count"></span>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table class="jobs" id="jobs">
+      <thead>
+        <tr>
+          <th scope="col" aria-sort="none"><button class="sort" type="button" data-sort="job">Job</button></th>
+          <th scope="col" aria-sort="none"><button class="sort" type="button" data-sort="last">Last run</button></th>
+          <th scope="col" aria-sort="none"><button class="sort" type="button" data-sort="next">Next run</button></th>
+          <th scope="col" aria-sort="none"><button class="sort" type="button" data-sort="status">Recent runs</button></th>
+          <th scope="col" class="col-totals">Totals</th>
+        </tr>
+      </thead>
+      <tbody id="jobs-body"></tbody>
+    </table>
+  </div>
+  <p class="sub empty" id="jobs-empty" hidden></p>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}"></script>
+<script type="module" src="{{ url_for('static', filename='js/overview.js', v=version) }}"></script>
+{% endblock %}

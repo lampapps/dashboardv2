@@ -86,6 +86,16 @@ MIGRATIONS: list[list[str]] = [
         )""",
         "CREATE INDEX idx_status_log_agent_ts ON agent_status_log(agent, ts)",
     ],
+    [
+        # Per-day run counts by outcome bucket; outlives the raw runs the counts came from.
+        """CREATE TABLE daily_runs (
+            day TEXT NOT NULL,
+            agent TEXT NOT NULL,
+            bucket TEXT NOT NULL,
+            runs INTEGER NOT NULL,
+            PRIMARY KEY (day, agent, bucket)
+        )""",
+    ],
 ]
 
 

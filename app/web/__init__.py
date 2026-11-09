@@ -21,10 +21,11 @@ def create_app(cfg: Optional[Config] = None) -> Flask:
     app.config["MAX_CONTENT_LENGTH"] = MAX_REQUEST_BYTES
     app.extensions["jabs_agents"] = AgentRegistry()
 
-    from . import api_ingest, api_ui
+    from . import api_ingest, api_ui, pages
 
     app.register_blueprint(api_ingest.bp)
     app.register_blueprint(api_ui.bp)
+    app.register_blueprint(pages.bp)
 
     @app.get("/healthz")
     def healthz():
