@@ -1,0 +1,7 @@
+This is a test message from the JABS dashboard.
+
+If you can read it, email is set up correctly.
+Server: {{ server }}:{{ port }}
+Recipients: {{ recipients }}
+
+-- JABS dashboard, {{ generated }}

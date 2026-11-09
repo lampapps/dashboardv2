@@ -3,6 +3,7 @@
 import hashlib
 import ipaddress
 import os
+import re
 import secrets
 import tempfile
 from pathlib import Path
@@ -11,6 +12,7 @@ from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
+from croniter import croniter
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from . import settings
@@ -18,6 +20,7 @@ from . import settings
 PathLike = Union[str, Path]
 
 AGENT_NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+EMAIL_ADDRESS = re.compile(r"^[^@\s<>]+@[^@\s<>]+$")
 AGENTS_HEADER = (
     "# Agents allowed to report to the dashboard (API keys are stored only as SHA-256 hashes).\n"
     "# Add one with: python -m app agent add NAME\n"
@@ -93,9 +96,9 @@ class DigestConfig(_Model):
 
     @field_validator("schedule")
     @classmethod
-    def _five_fields(cls, value: str) -> str:
-        if len(value.split()) != 5:
-            raise ValueError("must be a 5-field cron expression")
+    def _cron(cls, value: str) -> str:
+        if len(value.split()) != 5 or not croniter.is_valid(value):
+            raise ValueError("must be a valid 5-field cron expression")
         return value
 
 
@@ -103,6 +106,13 @@ class OfflineAlertConfig(_Model):
     enabled: bool = True
     max_alerts: int = Field(1, ge=0)
     repeat_interval_minutes: int = Field(60, ge=1)
+    send_recovery: bool = True
+
+
+def _check_address(value: str) -> str:
+    if not EMAIL_ADDRESS.match(value):
+        raise ValueError(f"'{value}' is not an email address")
+    return value
 
 
 class EmailConfig(_Model):
@@ -113,6 +123,16 @@ class EmailConfig(_Model):
     to_addrs: list[str] = Field(default_factory=list)
     digest: DigestConfig = Field(default_factory=DigestConfig)
     offline_alert: OfflineAlertConfig = Field(default_factory=OfflineAlertConfig)
+
+    @field_validator("to_addrs")
+    @classmethod
+    def _check_recipients(cls, value: list) -> list:
+        return [_check_address(item) for item in value]
+
+    @field_validator("from_addr")
+    @classmethod
+    def _check_sender(cls, value: str) -> str:
+        return _check_address(value) if value else value
 
 
 class RetentionConfig(_Model):

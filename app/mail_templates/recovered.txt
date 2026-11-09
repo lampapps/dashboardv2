@@ -1,0 +1,7 @@
+Agent {{ agent }} is reporting again.
+
+Offline since:  {{ down_since }}
+Back at:        {{ back_at }}
+Offline for:    {{ down_for }}
+
+-- JABS dashboard, {{ generated }}

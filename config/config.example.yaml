@@ -47,6 +47,7 @@ email:
     enabled: true
     max_alerts: 1                # alerts per outage; 0 = repeat until back online
     repeat_interval_minutes: 60
+    send_recovery: true          # also email when the agent is back (only after an alert was sent)
 
 retention:
   runs_days: 30          # raw runs and their events

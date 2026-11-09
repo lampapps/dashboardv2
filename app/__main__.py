@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from . import config, db, settings, tick
+from . import config, db, mailer, settings, tick
 
 
 def _cmd_initdb(_args: argparse.Namespace) -> int:
@@ -40,6 +40,24 @@ def _cmd_tick(_args: argparse.Namespace) -> int:
         tick.run_once(conn, cfg)
     finally:
         conn.close()
+    return 0
+
+
+def _cmd_testmail(_args: argparse.Namespace) -> int:
+    cfg = config.load_config()
+    if not mailer.is_configured(cfg.email):
+        print("email is not configured: set email.smtp_server and email.to_addrs in config.yaml", file=sys.stderr)
+        return 1
+    hint = mailer.smtp_login_hint(cfg.email)
+    if hint:
+        print(f"note: {hint}", file=sys.stderr)
+    text, html = mailer.render(
+        "test", server=cfg.email.smtp_server, port=cfg.email.smtp_port, recipients=", ".join(cfg.email.to_addrs),
+        generated=datetime.now().strftime("%Y-%m-%d %H:%M"))
+    if not mailer.send(cfg.email, "JABS test message", text, html):
+        print("sending failed; see the error above", file=sys.stderr)
+        return 1
+    print(f"test message sent to {', '.join(cfg.email.to_addrs)}")
     return 0
 
 
@@ -108,6 +126,7 @@ def build_parser() -> argparse.ArgumentParser:
     add("web", _cmd_web, "serve the web UI and agent API").add_argument(
         "--dev", action="store_true", help="Flask dev server instead of gunicorn")
     add("tick", _cmd_tick, "run the periodic tasks once (driven by the systemd timer)")
+    add("testmail", _cmd_testmail, "send a test message with the email settings")
     add("backup", _cmd_backup, "write a consistent copy of the database").add_argument(
         "--dest", type=Path, help="output file (default: data/backups/jabs-<timestamp>.sqlite)")
     add("reset", _cmd_reset, "delete the database and recreate it empty").add_argument(

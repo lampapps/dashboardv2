@@ -1,0 +1,66 @@
+<!doctype html>
+<html>
+<body style="font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color: #1d2733; max-width: 760px;">
+  <h2 style="margin-bottom: .25rem;">JABS digest</h2>
+  <p style="color: #5d6b7a; margin-top: 0;">{{ period_start }} to {{ period_end }}</p>
+
+  <p>
+    <strong style="color: #15803d;">{{ totals.success }} succeeded</strong> &middot;
+    <strong style="color: {{ '#b91c1c' if totals.failed else '#5d6b7a' }};">{{ totals.failed }} failed</strong> &middot;
+    <strong style="color: {{ '#b45309' if totals.stopped else '#5d6b7a' }};">{{ totals.stopped }} stopped</strong>
+    {% if totals.other %}&middot; {{ totals.other }} other{% endif %}
+  </p>
+
+  {% if outages %}
+  <h3 style="margin-bottom: .25rem;">Agent outages</h3>
+  <table style="border-collapse: collapse; width: 100%; font-size: 14px;">
+    {% for o in outages %}
+    <tr>
+      <td style="padding: 3px 12px 3px 0;"><strong>{{ o.agent }}</strong></td>
+      <td style="padding: 3px 12px 3px 0;">down {% if o.began_before %}from before this period{% else %}since {{ o.start }}{% endif %}</td>
+      <td style="padding: 3px 0; color: {{ '#b91c1c' if o.ongoing else '#15803d' }};">
+        {% if o.ongoing %}still offline{% else %}back {{ o.end }} ({{ o.duration }}){% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+  {% if problems %}
+  <h3 style="margin-bottom: .25rem;">Failed and stopped runs</h3>
+  <table style="border-collapse: collapse; width: 100%; font-size: 14px;">
+    <tr style="text-align: left; color: #5d6b7a;">
+      <th style="padding: 3px 12px 3px 0;">When</th><th style="padding: 3px 12px 3px 0;">Job</th>
+      <th style="padding: 3px 12px 3px 0;">Status</th><th style="padding: 3px 0;">Error</th>
+    </tr>
+    {% for p in problems %}
+    <tr style="vertical-align: top; border-top: 1px solid #e5e9ee;">
+      <td style="padding: 3px 12px 3px 0; white-space: nowrap;">{{ p.when }}</td>
+      <td style="padding: 3px 12px 3px 0;">{{ p.agent }} / {{ p.job }}{% if p.target %}<br><span style="color: #5d6b7a;">{{ p.target }}</span>{% endif %}</td>
+      <td style="padding: 3px 12px 3px 0; color: {{ '#b91c1c' if p.status in ('failed', 'error') else '#b45309' }};">{{ p.status }}</td>
+      <td style="padding: 3px 0; color: #5d6b7a;">{{ p.error }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% if problems_more %}<p style="color: #5d6b7a;">... and {{ problems_more }} more</p>{% endif %}
+  {% endif %}
+
+  {% if per_agent %}
+  <h3 style="margin-bottom: .25rem;">By agent</h3>
+  <table style="border-collapse: collapse; font-size: 14px;">
+    <tr style="text-align: left; color: #5d6b7a;">
+      <th style="padding: 3px 16px 3px 0;">Agent</th><th style="padding: 3px 16px 3px 0;">OK</th>
+      <th style="padding: 3px 16px 3px 0;">Failed</th><th style="padding: 3px 0;">Stopped</th>
+    </tr>
+    {% for a in per_agent %}
+    <tr style="border-top: 1px solid #e5e9ee;">
+      <td style="padding: 3px 16px 3px 0;">{{ a.agent }}</td><td style="padding: 3px 16px 3px 0;">{{ a.success }}</td>
+      <td style="padding: 3px 16px 3px 0;">{{ a.failed }}</td><td style="padding: 3px 0;">{{ a.stopped }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+  <p style="color: #9aa7b4; font-size: 12px;">JABS dashboard, {{ generated }}</p>
+</body>
+</html>

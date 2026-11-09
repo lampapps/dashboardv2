@@ -1,0 +1,13 @@
+Agent {{ agent }} has not reported in for {{ silent_for }} and is considered offline.
+
+Last contact:   {{ last_contact }}
+Offline since:  {{ down_since }}
+Grace period:   {{ grace_minutes }} minutes
+{% if notes %}
+Notes:          {{ notes }}
+{% endif %}
+
+Alert {{ alert_number }}{% if max_alerts %} of {{ max_alerts }}{% endif %} for this outage. {% if recovery %}You will get a message when the agent reports in again.{% endif %}
+
+
+-- JABS dashboard, {{ generated }}

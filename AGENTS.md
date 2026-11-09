@@ -16,6 +16,7 @@ Replacement for the legacy dashboard (`../dashboard`, "v1"). Read-only web UI pl
 - `app/__main__.py` is the management CLI (`python -m app <command>`); prefer adding a subcommand over a shell script.
 - `app/db.py`: numbered `MIGRATIONS` tracked by `PRAGMA user_version`. Before the first production install migration 1 may be edited; afterwards only append.
 - `app/tick.py`: periodic tasks, run every 5 minutes by a systemd timer; each task does its own due-check and keeps its state in the `meta` table.
+- Email: `app/mailer.py` (SMTP send, templates in `app/mail_templates/`, `.txt` + `.html` pair per message) and `app/notify.py` (offline alerts and recovery from the logged `down`/`up` status, digest by cron schedule). Both run as tick tasks; `python -m app testmail` checks the settings.
 - Systemd units are templates in `deploy/`, rendered by `deploy/install.sh`.
 
 ## Conventions

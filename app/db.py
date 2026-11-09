@@ -136,6 +136,11 @@ MIGRATIONS: list[list[str]] = [
             PRIMARY KEY (agent, log, batch_id)
         )""",
     ],
+    [
+        # Offline-alert progress for the agent's current outage; reset once it is back up.
+        "ALTER TABLE agent_state ADD COLUMN alert_count INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE agent_state ADD COLUMN last_alert_at REAL",
+    ],
 ]
 
 

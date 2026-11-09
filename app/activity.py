@@ -62,6 +62,21 @@ def rollup_daily(conn: sqlite3.Connection, tz: ZoneInfo, now: float, runs_days: 
         )
 
 
+def purge_runs(conn: sqlite3.Connection, tz: ZoneInfo, now: float, runs_days: int, rollup_days: int) -> int:
+    """Delete runs (and their events) older than the raw window and rollups older than rollup_days.
+
+    The day leaving the raw window is rolled up one last time first, so its counts are final.
+    Returns the number of runs deleted.
+    """
+    rollup_daily(conn, tz, now, runs_days + 1)
+    today = _today(now, tz)
+    cutoff = _day_start(today - timedelta(days=runs_days - 1), tz)
+    with db.transaction(conn):
+        deleted = conn.execute("DELETE FROM runs WHERE started_at < ?", (cutoff,)).rowcount
+        conn.execute("DELETE FROM daily_runs WHERE day < ?", ((today - timedelta(days=rollup_days)).isoformat(),))
+    return deleted
+
+
 def activity(conn: sqlite3.Connection, tz: ZoneInfo, now: float, days: int, runs_days: int,
              agent: Optional[str] = None) -> dict:
     """Daily run counts per bucket for the last `days` days, oldest first.

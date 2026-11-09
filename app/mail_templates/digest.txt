@@ -1,0 +1,33 @@
+JABS digest: {{ period_start }} to {{ period_end }}
+
+Runs finished: {{ totals.success }} succeeded, {{ totals.failed }} failed, {{ totals.stopped }} stopped{% if totals.other %}, {{ totals.other }} other{% endif %}
+
+
+{% if per_agent %}
+By agent
+{% for a in per_agent %}
+  {{ a.agent }}: {{ a.success }} ok, {{ a.failed }} failed, {{ a.stopped }} stopped{% if a.other %}, {{ a.other }} other{% endif %}
+
+{% endfor %}
+{% endif %}
+{% if problems %}
+
+Failed and stopped runs
+{% for p in problems %}
+  {{ p.when }}  {{ p.agent }} / {{ p.job }}{% if p.target %} ({{ p.target }}){% endif %}  {{ p.status }}{% if p.error %}  - {{ p.error }}{% endif %}
+
+{% endfor %}
+{% if problems_more %}
+  ... and {{ problems_more }} more
+{% endif %}
+{% endif %}
+{% if outages %}
+
+Agent outages
+{% for o in outages %}
+  {{ o.agent }}: down {% if o.began_before %}from before this period{% else %}since {{ o.start }}{% endif %}{% if o.ongoing %}, still offline{% else %}, back {{ o.end }} ({{ o.duration }}){% endif %}
+
+{% endfor %}
+{% endif %}
+
+-- JABS dashboard, {{ generated }}
