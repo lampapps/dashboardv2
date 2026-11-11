@@ -2,7 +2,7 @@ import {
   el, setText, setClass, setStyle, setTitle, setHidden, setData, readStore, writeStore, reconcile, getJson, poll,
   initThemeToggle, refreshRelative, fmtClock, fmtDateTime, fmtRelative, fmtShort, fmtTick, fmtPercent,
 } from "./ui.js";
-import { AGENT_STATUS_LABEL as STATUS_LABEL, agentHref, bucketOf, groupByHost, groupKey, syncTimeline } from "./shared.js";
+import { AGENT_STATUS_LABEL as STATUS_LABEL, agentHref, bucketOf, groupByHost, groupKey, HOST_SOURCE_LABEL, syncTimeline } from "./shared.js";
 
 const $ = (id) => document.getElementById(id);
 const POLL_MS = 15000;
@@ -88,6 +88,7 @@ function updateCard(card, agent) {
   setText(r.meta, meta.filter(Boolean).join(" · "));
 
   setText(r.host, agent.host);
+  setTitle(r.host, "Host " + HOST_SOURCE_LABEL[agent.host_source]);
   setText(r.uptime, agent.uptime === null ? "–" : fmtPercent(agent.uptime));
   setText(r.uptimeLabel, agent.uptime === null ? "no up/down history in this range" : `up over the last ${data.range}`);
   syncTimeline(r.timeline, agent.spans, data.start, data.end, state.tz);

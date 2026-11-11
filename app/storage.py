@@ -11,7 +11,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import db
-from .config import Config, S3Bucket, StorageConfig
+from .config import Config, S3Bucket, StorageConfig, clean_hostname
 
 try:
     from botocore.exceptions import BotoCoreError, ClientError
@@ -210,7 +210,13 @@ class AgentStoragePayload(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
+    hostname: Optional[str] = None
     samples: list[AgentSample] = Field(min_length=1, max_length=MAX_AGENT_SAMPLES)
+
+    @field_validator("hostname", mode="before")
+    @classmethod
+    def _clean_hostname(cls, value: object) -> Optional[str]:
+        return clean_hostname(value)
 
 
 def agent_samples(agent: str, payload: AgentStoragePayload, now: float) -> list:

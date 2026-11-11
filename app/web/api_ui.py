@@ -10,15 +10,15 @@ from zoneinfo import ZoneInfo
 from flask import Blueprint, Response, current_app, jsonify, request
 
 from .. import agents_report, db, jobs, logs, overview, runs, storage
-from ..agents import host_map
+from ..agents import resolve_hosts
 
 bp = Blueprint("ui", __name__, url_prefix="/api/ui")
 
 MAX_PARAM_LENGTH = 200
 
 
-def _hosts() -> dict:
-    return host_map(current_app.extensions["jabs_agents"].agents())
+def _hosts(conn) -> dict:
+    return resolve_hosts(conn, current_app.extensions["jabs_agents"].agents())
 
 
 def _respond(conn, now: float, key: str, build: Callable[[], dict], rev_key: str = "rev") -> Response:
@@ -46,7 +46,7 @@ def _text_arg(name: str) -> Optional[str]:
 def list_jobs():
     tz = ZoneInfo(current_app.config["JABS_CONFIG"].timezone)
     with closing(db.connect()) as conn:
-        return jsonify({"data": jobs.job_rollups(conn, tz, time.time(), _hosts())})
+        return jsonify({"data": jobs.job_rollups(conn, tz, time.time(), _hosts(conn))})
 
 
 @bp.get("/overview")
@@ -99,7 +99,7 @@ def storage_data():
     now = time.time()
     with closing(db.connect()) as conn:
         return _respond(conn, now, f"storage {range_key}", lambda: {
-            **storage.history(conn, cfg, now, range_key), "hosts": _hosts()})
+            **storage.history(conn, cfg, now, range_key), "hosts": _hosts(conn)})
 
 
 @bp.get("/job")
@@ -111,7 +111,7 @@ def job_data():
     cfg = current_app.config["JABS_CONFIG"]
     now = time.time()
     with closing(db.connect()) as conn:
-        summary = runs.job_summary(conn, cfg, now, agent, name, _hosts())
+        summary = runs.job_summary(conn, cfg, now, agent, name, _hosts(conn))
         if summary is None:
             return _error("Unknown job", 404)
         return _respond(conn, now, f"job {agent} {name}", lambda: summary)
@@ -142,7 +142,7 @@ def run_data(run_id: int):
         detail = runs.run_detail(conn, run_id)
         if detail is None:
             return _error("Unknown run", 404)
-        detail["run"]["host"] = _hosts().get(detail["run"]["agent"], detail["run"]["agent"])
+        detail["run"]["host"] = _hosts(conn).get(detail["run"]["agent"], detail["run"]["agent"])
         return _respond(conn, now, f"run {run_id}", lambda: detail)
 
 
@@ -151,11 +151,12 @@ def logs_list():
     """Every stored agent log with its size, time span and per-level counts."""
     now = time.time()
     cfg = current_app.config["JABS_CONFIG"]
-    hosts = _hosts()
     with closing(db.connect()) as conn:
-        return _respond(conn, now, "logs", lambda: {
-            "logs": [{**entry, "host": hosts.get(entry["agent"], entry["agent"])} for entry in logs.list_logs(conn)],
-            "now": now, "timezone": cfg.timezone}, rev_key="log_rev")
+        def build() -> dict:
+            hosts = _hosts(conn)
+            return {"logs": [{**entry, "host": hosts.get(entry["agent"], entry["agent"])} for entry in logs.list_logs(conn)],
+                    "now": now, "timezone": cfg.timezone}
+        return _respond(conn, now, "logs", build, rev_key="log_rev")
 
 
 def _optional_int(name: str) -> Optional[int]:

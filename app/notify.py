@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from croniter import croniter
 
 from . import activity, db, mailer, status
-from .agents import host_map
+from .agents import resolve_hosts
 from .config import Config, ConfigError, load_agents
 
 logger = logging.getLogger(__name__)
@@ -49,7 +49,7 @@ def _send_offline_alert(conn: sqlite3.Connection, cfg: Config, agent, state: sql
         return
     tz = ZoneInfo(cfg.timezone)
     last_contact = state["last_heartbeat"]
-    host = agent.host or agent.name
+    host = resolve_hosts(conn, [agent])[agent.name]
     text, html = mailer.render(
         "offline", agent=agent.name, host=host, label=_label(host, agent.name), notes=agent.notes, grace_minutes=agent.grace_minutes,
         last_contact=_fmt(last_contact, tz) if last_contact else "never",
@@ -64,7 +64,7 @@ def _send_offline_alert(conn: sqlite3.Connection, cfg: Config, agent, state: sql
 
 def _send_recovery(conn: sqlite3.Connection, cfg: Config, agent, state: sqlite3.Row, now: float) -> None:
     tz = ZoneInfo(cfg.timezone)
-    host = agent.host or agent.name
+    host = resolve_hosts(conn, [agent])[agent.name]
     went_down = conn.execute("SELECT ts FROM agent_status_log WHERE agent = ? AND status = 'down' "
                              "ORDER BY ts DESC LIMIT 1", (agent.name,)).fetchone()
     back_at = state["status_since"] or now
@@ -106,7 +106,7 @@ def offline_alerts(conn: sqlite3.Connection, cfg: Config, now: float) -> None:
 def digest_data(conn: sqlite3.Connection, cfg: Config, agents: list, since: float, now: float) -> dict:
     """What happened between `since` and `now`: finished runs, problem runs and agent outages."""
     tz = ZoneInfo(cfg.timezone)
-    hosts = host_map(agents)
+    hosts = resolve_hosts(conn, agents)
     totals = {b: 0 for b in ("success", "failed", "stopped", "other")}
     per_agent: dict = {}
     problems = []

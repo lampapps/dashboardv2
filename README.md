@@ -96,10 +96,13 @@ v1-compatible endpoints, documented in [`../dashboard/AGENTS_API_GUIDE.md`](../d
 New endpoints under `/api/v2/`, which an agent opts into:
 
 ```text
-POST /api/v2/storage   {"samples": [{"name", "kind": "local|cloud|repo", "used_bytes",
-                                      "total_bytes"?, "series"?, "timestamp"?}]}
-POST /api/v2/logs      {"log": "name", "batch_id"?: "...", "lines": ["text" | {"message", "level"?, "ts"?}]}
+POST /api/v2/storage   {"hostname"?: "...", "samples": [{"name", "kind": "local|cloud|repo",
+                         "used_bytes", "total_bytes"?, "series"?, "timestamp"?}]}
+POST /api/v2/logs      {"hostname"?: "...", "log": "name", "batch_id"?: "...",
+                         "lines": ["text" | {"message", "level"?, "ts"?}]}
 ```
+
+`POST /api/monitoring/events` also accepts an optional `hostname`.
 
 - Logs: up to 1000 lines per post, 2000 characters per line, 25 logs per agent. Each log keeps its newest 5000 lines. A repeated `batch_id` is acknowledged without storing the lines again, so retries are safe. The level is taken from the entry or detected in the text.
 - Storage: any post counts as hearing from the agent.
@@ -108,7 +111,7 @@ Agent-supplied text is untrusted and is always rendered as text, never as HTML.
 
 ### Hosts
 
-Several agents can run on one machine, and the same agent type can run on several machines, so a job name alone is not unique. Each registered agent has a `host`, set with `agent add NAME --host HOST` or by editing `agents.yaml`. Every page that shows a job also shows its host (and the agent name when that differs), and the jobs table and the Agents page can be sorted or grouped by host. Agents do not report their own host. An agent registered without one is shown under its agent name.
+Several agents can run on one machine, and the same agent type can run on several machines, so a job name alone is not unique. An agent can report the name of its machine in a `hostname` field on `/api/monitoring/events`, `/api/v2/logs` and `/api/v2/storage`; that name is always used when present. For agents that do not report one, set `host` in `agents.yaml` (`agent add NAME --host HOST`). An unusable reported name (not a plausible host name) is ignored rather than rejected. Every page that shows a job also shows its host (and the agent name when that differs), and the jobs table and the Agents page can be sorted or grouped by host. An agent with neither is shown under its agent name.
 
 ### How agents are judged up or down
 

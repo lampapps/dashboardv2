@@ -45,6 +45,14 @@ class _Model(BaseModel):
         return data
 
 
+def clean_hostname(value: object) -> Optional[str]:
+    """A host name an agent reported, or None when it is absent or not a plausible host name."""
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    return value if value and re.match(AGENT_HOST_PATTERN, value) else None
+
+
 def _check_http_url(value: str) -> str:
     parsed = urlparse(value)
     if parsed.scheme not in ("http", "https") or not parsed.netloc:

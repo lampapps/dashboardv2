@@ -60,3 +60,9 @@ def test_schedules_are_per_agent(backend, agent, other_agent, reporter, other_re
     other_reporter.event(job_name="J", cron_schedule="0 5 * * *")
     assert backend.schedules(agent) == {"J": "0 1 * * *"}
     assert backend.schedules(other_agent) == {"J": "0 5 * * *"}
+
+
+def test_reported_hostname_is_accepted_even_where_it_is_ignored(backend, agent, reporter):
+    assert reporter.event(version="1.0", hostname="P3Tiny").status_code == 201
+    assert reporter.event(hostname="bad host with spaces").status_code == 201
+    assert backend.agent_info(agent)["version"] == "1.0"

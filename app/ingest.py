@@ -10,6 +10,7 @@ from typing import Any, Optional, Union
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from . import db, status as agent_status
+from .config import clean_hostname
 
 Number = Optional[Union[int, float]]
 
@@ -57,6 +58,12 @@ class EventPayload(BaseModel):
     error_message: Optional[str] = None
     external_id: Optional[str] = None
     cron_schedule: Optional[str] = None
+    hostname: Optional[str] = None
+
+    @field_validator("hostname", mode="before")
+    @classmethod
+    def _clean_hostname(cls, value: Any) -> Optional[str]:
+        return clean_hostname(value)
 
     @field_validator(*_STRING_LIMITS, mode="after")
     @classmethod
@@ -97,21 +104,24 @@ _PROGRESS_COLUMNS = {
 
 
 def _touch_agent(conn: sqlite3.Connection, agent: str, payload: EventPayload, now: float) -> bool:
+    previous = conn.execute("SELECT hostname FROM agent_state WHERE name = ?", (agent,)).fetchone()
     conn.execute(
-        "INSERT INTO agent_state (name, version, agent_type, last_heartbeat, updated_at) "
-        "VALUES (?, ?, ?, ?, ?) "
+        "INSERT INTO agent_state (name, version, agent_type, hostname, last_heartbeat, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(name) DO UPDATE SET "
         "last_heartbeat = excluded.last_heartbeat, updated_at = excluded.updated_at, "
         "version = COALESCE(excluded.version, version), "
-        "agent_type = COALESCE(excluded.agent_type, agent_type)",
-        (agent, payload.version, payload.agent_type, now, now),
+        "agent_type = COALESCE(excluded.agent_type, agent_type), "
+        "hostname = COALESCE(excluded.hostname, hostname)",
+        (agent, payload.version, payload.agent_type, payload.hostname, now, now),
     )
-    return agent_status.record_contact(conn, agent, now)
+    host_changed = payload.hostname is not None and (previous is None or previous["hostname"] != payload.hostname)
+    return agent_status.record_contact(conn, agent, now) or host_changed
 
 
-def touch_agent(conn: sqlite3.Connection, agent: str, now: float) -> bool:
-    """Record that an agent was heard from; True if that changed its logged status."""
-    return _touch_agent(conn, agent, EventPayload(), now)
+def touch_agent(conn: sqlite3.Connection, agent: str, now: float, hostname: Optional[str] = None) -> bool:
+    """Record that an agent was heard from; True if that changed its logged status or its host name."""
+    return _touch_agent(conn, agent, EventPayload(hostname=hostname), now)
 
 
 def _find_or_create_run(conn: sqlite3.Connection, agent: str, p: EventPayload, now: float) -> int:

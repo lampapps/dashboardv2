@@ -141,6 +141,10 @@ MIGRATIONS: list[list[str]] = [
         "ALTER TABLE agent_state ADD COLUMN alert_count INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE agent_state ADD COLUMN last_alert_at REAL",
     ],
+    [
+        # The machine name the agent itself reported; wins over the host set in agents.yaml.
+        "ALTER TABLE agent_state ADD COLUMN hostname TEXT",
+    ],
 ]
 
 

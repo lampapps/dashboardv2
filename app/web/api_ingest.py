@@ -99,7 +99,9 @@ def submit_storage():
     now = time.time()
     try:
         with closing(db.connect()) as conn:
-            ingest.touch_agent(conn, agent.name, now)
+            with db.transaction(conn):
+                if ingest.touch_agent(conn, agent.name, now, payload.hostname):
+                    db.bump_rev(conn)
             stored = storage.store_samples(conn, storage.agent_samples(agent.name, payload, now))
     except sqlite3.Error:
         logger.exception("failed to record storage from agent %s", agent.name)
@@ -121,7 +123,7 @@ def submit_logs():
     try:
         with closing(db.connect()) as conn:
             with db.transaction(conn):
-                if ingest.touch_agent(conn, agent.name, now):
+                if ingest.touch_agent(conn, agent.name, now, payload.hostname):
                     db.bump_rev(conn)
             result = logs.store_batch(conn, cfg, agent.name, payload, now)
     except logs.LogError as exc:

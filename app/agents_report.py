@@ -5,7 +5,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from . import activity, jobs, overview, storage
-from .agents import host_map
+from .agents import host_source, resolve_hosts
 from .config import AgentConfig, Config
 from .status import effective_status, evaluate, gap_end, timeline, uptime
 
@@ -20,7 +20,7 @@ class _Context:
         self.conn, self.cfg, self.now, self.hosts = conn, cfg, now, hosts
         self.gap = gap_end(conn)
         self.states = {row["name"]: row for row in conn.execute(
-            "SELECT name, version, agent_type, last_heartbeat, status, status_since FROM agent_state")}
+            "SELECT name, version, agent_type, hostname, last_heartbeat, status, status_since FROM agent_state")}
         self.jobs_by_agent: dict = {}
         for row in jobs.job_rollups(conn, ZoneInfo(cfg.timezone), now, hosts):
             self.jobs_by_agent.setdefault(row["agent"], []).append(row)
@@ -42,6 +42,7 @@ def _card(ctx: _Context, agent: AgentConfig, start: float) -> dict:
     return {
         "name": agent.name,
         "host": ctx.hosts.get(agent.name, agent.name),
+        "host_source": host_source(state["hostname"] if state else None, agent),
         "status": current,
         "since": pending[1] if pending else (state["status_since"] if state and current == stored else None),
         "last_heartbeat": heartbeat,
@@ -66,7 +67,7 @@ def _card(ctx: _Context, agent: AgentConfig, start: float) -> dict:
 def build(conn: sqlite3.Connection, cfg: Config, configured: list, now: float, range_key: str) -> dict:
     key, span = storage.range_seconds(range_key)
     start = now - span
-    ctx = _Context(conn, cfg, now, host_map(configured))
+    ctx = _Context(conn, cfg, now, resolve_hosts(conn, configured))
     agents = [_card(ctx, agent, start) for agent in configured]
     agents.sort(key=lambda a: (_ATTENTION[a["status"]], a["name"]))
     return {"now": now, "timezone": cfg.timezone, "range": key, "start": start, "end": now, "agents": agents}
@@ -86,7 +87,7 @@ def detail(conn: sqlite3.Connection, cfg: Config, agent: AgentConfig, now: float
     key, span = storage.range_seconds(range_key)
     days = overview.clamp_days(span // 86400)
     start = now - span
-    ctx = _Context(conn, cfg, now, host_map([agent]))
+    ctx = _Context(conn, cfg, now, resolve_hosts(conn, [agent]))
     card = _card(ctx, agent, start)
     tz = ZoneInfo(cfg.timezone)
     chart = activity.activity(conn, tz, now, days, cfg.retention.runs_days, agent=agent.name)

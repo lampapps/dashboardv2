@@ -4,10 +4,10 @@ import re
 import sqlite3
 from typing import Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import db
-from .config import Config
+from .config import Config, clean_hostname
 
 LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 OTHER = "other"
@@ -47,7 +47,14 @@ class LogBatch(BaseModel):
 
     log: str = Field(pattern=LOG_NAME_PATTERN)
     batch_id: Optional[str] = Field(None, max_length=MAX_BATCH_ID_LENGTH)
+    hostname: Optional[str] = None
     lines: list[Union[str, LogLine]] = Field(min_length=1, max_length=MAX_LINES_PER_POST)
+
+
+    @field_validator("hostname", mode="before")
+    @classmethod
+    def _clean_hostname(cls, value: object) -> Optional[str]:
+        return clean_hostname(value)
 
 
 def normalize_level(level: Optional[str]) -> Optional[str]:

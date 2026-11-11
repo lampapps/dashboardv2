@@ -2,7 +2,7 @@ import {
   el, setText, setClass, setTitle, readStore, writeStore, getJson, poll, refreshRelative, initThemeToggle,
   fmtClock, fmtDateTime, fmtDuration, fmtShort, fmtTick, fmtPercent, fmtBytes,
 } from "./ui.js";
-import { AGENT_STATUS_LABEL, syncTimeline } from "./shared.js";
+import { AGENT_STATUS_LABEL, HOST_SOURCE_LABEL, syncTimeline } from "./shared.js";
 import { createActivityChart } from "./activity-chart.js";
 import { createJobsTable } from "./jobs-table.js";
 
@@ -53,7 +53,7 @@ function render(data) {
     setText(contact, "never");
   }
   const cfg = data.config;
-  setText($("a-host"), cfg.host || `${data.host} (not set; the agent name is used)`);
+  setText($("a-host"), `${data.host} (${HOST_SOURCE_LABEL[data.host_source]})`);
   setText($("a-grace"), `${cfg.grace_minutes} min`);
   setText($("a-alerts"), cfg.offline_alerts ? "on" : "off");
   setText($("a-ip"), cfg.allowed_ip || "any");

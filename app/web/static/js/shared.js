@@ -13,6 +13,10 @@ export const AGENT_STATUS_LABEL = { up: "Up", down: "Down", new: "New", disabled
 export const agentHref = (name) => `/agents/${encodeURIComponent(name)}`;
 export const jobHref = (agent, job) => `${agentHref(agent)}/job?name=${encodeURIComponent(job)}`;
 
+export const HOST_SOURCE_LABEL = {
+  reported: "reported by the agent", configured: "set in agents.yaml", agent: "the agent name; none reported or configured",
+};
+
 // "host / agent", or just the one name when they are the same.
 export const agentLabel = (host, agent) => (host === agent ? agent : `${host} / ${agent}`);
 

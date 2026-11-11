@@ -1,6 +1,7 @@
 """Agent registry backed by agents.yaml, reloaded when the file changes."""
 
 import logging
+import sqlite3
 import threading
 from pathlib import Path
 from typing import Optional, Union
@@ -49,6 +50,13 @@ class AgentRegistry:
         return list(self._by_hash.values())
 
 
-def host_map(agents: list) -> dict:
-    """Host shown for each agent name; an agent without a configured host is shown under its own name."""
-    return {agent.name: agent.host or agent.name for agent in agents}
+def resolve_hosts(conn: sqlite3.Connection, agents: list) -> dict:
+    """Host shown for each agent name: what the agent reported, else its agents.yaml host, else its name."""
+    reported = {row["name"]: row["hostname"] for row in conn.execute(
+        "SELECT name, hostname FROM agent_state WHERE hostname IS NOT NULL")}
+    return {agent.name: reported.get(agent.name) or agent.host or agent.name for agent in agents}
+
+
+def host_source(reported: Optional[str], agent) -> str:
+    """Where an agent's displayed host comes from: reported, configured or agent (its own name)."""
+    return "reported" if reported else "configured" if agent.host else "agent"
