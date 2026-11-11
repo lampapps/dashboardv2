@@ -6,7 +6,7 @@ Runs finished: {{ totals.success }} succeeded, {{ totals.failed }} failed, {{ to
 {% if per_agent %}
 By agent
 {% for a in per_agent %}
-  {{ a.agent }}: {{ a.success }} ok, {{ a.failed }} failed, {{ a.stopped }} stopped{% if a.other %}, {{ a.other }} other{% endif %}
+  {{ a.label }}: {{ a.success }} ok, {{ a.failed }} failed, {{ a.stopped }} stopped{% if a.other %}, {{ a.other }} other{% endif %}
 
 {% endfor %}
 {% endif %}
@@ -14,7 +14,7 @@ By agent
 
 Failed and stopped runs
 {% for p in problems %}
-  {{ p.when }}  {{ p.agent }} / {{ p.job }}{% if p.target %} ({{ p.target }}){% endif %}  {{ p.status }}{% if p.error %}  - {{ p.error }}{% endif %}
+  {{ p.when }}  {{ p.label }} / {{ p.job }}{% if p.target %} ({{ p.target }}){% endif %}  {{ p.status }}{% if p.error %}  - {{ p.error }}{% endif %}
 
 {% endfor %}
 {% if problems_more %}
@@ -25,7 +25,7 @@ Failed and stopped runs
 
 Agent outages
 {% for o in outages %}
-  {{ o.agent }}: down {% if o.began_before %}from before this period{% else %}since {{ o.start }}{% endif %}{% if o.ongoing %}, still offline{% else %}, back {{ o.end }} ({{ o.duration }}){% endif %}
+  {{ o.label }}: down {% if o.began_before %}from before this period{% else %}since {{ o.start }}{% endif %}{% if o.ongoing %}, still offline{% else %}, back {{ o.end }} ({{ o.duration }}){% endif %}
 
 {% endfor %}
 {% endif %}

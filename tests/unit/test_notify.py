@@ -303,11 +303,11 @@ class TestDigestData:
         log_status(conn, "nas1", NOW - 4000, "up")
         log_status(conn, "nas1", NOW - 3000, "down")
         log_status(conn, "nas1", NOW - 1000, "up")
-        data = notify.digest_data(conn, make_config(), ["nas1"], NOW - DAY, NOW)
+        data = notify.digest_data(conn, make_config(), [agent()], NOW - DAY, NOW)
         assert data["totals"] == {"success": 2, "failed": 1, "stopped": 1, "other": 0}
         assert data["per_agent"] == [
-            {"agent": "nas1", "success": 1, "failed": 1, "stopped": 1, "other": 0},
-            {"agent": "nas2", "success": 1, "failed": 0, "stopped": 0, "other": 0}]
+            {"agent": "nas1", "host": "nas1", "label": "nas1", "success": 1, "failed": 1, "stopped": 1, "other": 0},
+            {"agent": "nas2", "host": "nas2", "label": "nas2", "success": 1, "failed": 0, "stopped": 0, "other": 0}]
         assert [(p["status"], p["job"], p["target"], p["error"]) for p in data["problems"]] == [
             ("failed", "etl", "vol1", "disk full badly"), ("stopped", "job", "", "")]
         (outage,) = data["outages"]
@@ -317,7 +317,7 @@ class TestDigestData:
     def test_ongoing_and_carried_over_outage(self, conn):
         log_status(conn, "nas1", NOW - 2 * DAY, "down")
         set_state(conn, status="down")
-        (outage,) = notify.digest_data(conn, make_config(), ["nas1"], NOW - DAY, NOW)["outages"]
+        (outage,) = notify.digest_data(conn, make_config(), [agent()], NOW - DAY, NOW)["outages"]
         assert outage["ongoing"] is True and outage["began_before"] is True
 
     def test_problem_list_is_capped(self, conn):

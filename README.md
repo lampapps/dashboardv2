@@ -11,8 +11,8 @@ v2 replaces the legacy dashboard (`../dashboard`, "v1"). The v1 agent endpoints 
 
 | Page | What it shows |
 | --- | --- |
-| Overview (`/`) | Metrics, Job Activity chart, jobs table (last, next and previous run), storage over time (local and cloud), status badges |
-| Agents (`/agents`) | One card per agent: up/down history, uptime, read-only configuration |
+| Overview (`/`) | Metrics, Job Activity chart, jobs table (host, job, last, next and previous run; sort or group by host), storage over time (local and cloud), status badges |
+| Agents (`/agents`) | One card per agent, grouped by host: up/down history, uptime, read-only configuration |
 | Agent (`/agents/<name>`) | That agent's jobs, activity and history |
 | Job (`/agents/<name>/job?name=<job>`) | Run history with filters and paging, duration and size trend, a run's events |
 | Logs (`/logs`) | Log tails shipped by agents: follow, level filters, search, download |
@@ -78,7 +78,7 @@ Run as `.venv/bin/python -m app <command>`.
 | `web [--dev]` | Serve the UI and API (gunicorn, or Flask's server with `--dev`) |
 | `tick` | Run the periodic tasks once (the timer does this) |
 | `testmail` | Send a test message with the email settings |
-| `agent add NAME [--grace-minutes N] [--notes TEXT] [--allowed-ip IP]` | Register an agent and print its key once |
+| `agent add NAME [--host HOST] [--grace-minutes N] [--notes TEXT] [--allowed-ip IP]` | Register an agent and print its key once |
 | `agent list`, `agent enable NAME`, `agent disable NAME` | Manage the registry; a disabled agent's key is rejected |
 | `backup [--dest FILE]` | Consistent copy of the database, safe while running |
 | `reset --yes` | Delete the database and all history |
@@ -105,6 +105,10 @@ POST /api/v2/logs      {"log": "name", "batch_id"?: "...", "lines": ["text" | {"
 - Storage: any post counts as hearing from the agent.
 
 Agent-supplied text is untrusted and is always rendered as text, never as HTML.
+
+### Hosts
+
+Several agents can run on one machine, and the same agent type can run on several machines, so a job name alone is not unique. Each registered agent has a `host`, set with `agent add NAME --host HOST` or by editing `agents.yaml`. Every page that shows a job also shows its host (and the agent name when that differs), and the jobs table and the Agents page can be sorted or grouped by host. Agents do not report their own host. An agent registered without one is shown under its agent name.
 
 ### How agents are judged up or down
 

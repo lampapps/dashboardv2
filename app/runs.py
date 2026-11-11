@@ -64,9 +64,10 @@ def trend(conn: sqlite3.Connection, agent: str, job_name: str, limit: int = TREN
     return [dict(r) for r in reversed(rows)]
 
 
-def job_summary(conn: sqlite3.Connection, cfg: Config, now: float, agent: str, job_name: str) -> Optional[dict]:
+def job_summary(conn: sqlite3.Connection, cfg: Config, now: float, agent: str, job_name: str,
+                hosts: Optional[dict] = None) -> Optional[dict]:
     """The job's rollup row plus its targets, averages and trend; None if it has no runs."""
-    rollup = next((r for r in jobs.job_rollups(conn, ZoneInfo(cfg.timezone), now)
+    rollup = next((r for r in jobs.job_rollups(conn, ZoneInfo(cfg.timezone), now, hosts)
                    if r["agent"] == agent and r["job_name"] == job_name), None)
     if rollup is None:
         return None
@@ -81,7 +82,7 @@ def job_summary(conn: sqlite3.Connection, cfg: Config, now: float, agent: str, j
     schedule = conn.execute(
         "SELECT cron_schedule FROM job_schedules WHERE agent = ? AND job_name = ?", (agent, job_name)).fetchone()
     return {
-        "agent": agent, "job_name": job_name, "rollup": rollup,
+        "agent": agent, "host": rollup["host"], "job_name": job_name, "rollup": rollup,
         "schedule": schedule["cron_schedule"] if schedule else None,
         "targets": targets,
         "avg_runtime_seconds": stats["avg_runtime"], "bytes_processed": stats["bytes"],

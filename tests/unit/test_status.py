@@ -213,8 +213,9 @@ class TestHttp:
 
         nas = by_name["nas1"]
         assert (nas["status"], nas["version"], nas["agent_type"]) == ("up", "2.0", "NAS Sync")
-        assert nas["config"] == {"enabled": True, "grace_minutes": 30, "notes": "the NAS", "allowed_ip": None,
-                                 "offline_alerts": True}
+        assert nas["config"] == {"enabled": True, "host": "", "grace_minutes": 30, "notes": "the NAS",
+                                 "allowed_ip": None, "offline_alerts": True}
+        assert nas["host"] == "nas1"  # no host configured: shown under the agent name
         assert nas["jobs"] == {"total": 1, "failing": 0}
         assert nas["last_run"]["job_name"] == "nightly"
         assert nas["schedules"] == [{"job_name": "nightly", "cron_schedule": "30 2 * * *"}]

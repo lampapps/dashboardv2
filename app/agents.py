@@ -47,3 +47,8 @@ class AgentRegistry:
     def agents(self) -> list:
         self._refresh()
         return list(self._by_hash.values())
+
+
+def host_map(agents: list) -> dict:
+    """Host shown for each agent name; an agent without a configured host is shown under its own name."""
+    return {agent.name: agent.host or agent.name for agent in agents}

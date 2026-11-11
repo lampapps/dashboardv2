@@ -3,7 +3,7 @@ import {
   refreshRelative, cssVar, initThemeToggle, fmtClock, fmtDateTime, fmtShort, fmtDuration, fmtBytes, fmtPercent,
   niceByteTicks,
 } from "./ui.js";
-import { bucketOf } from "./shared.js";
+import { agentLabel, bucketOf } from "./shared.js";
 
 const $ = (id) => document.getElementById(id);
 const POLL_MS = 5000;
@@ -124,7 +124,12 @@ function renderSummary(data) {
 
   setText($("j-pill"), rollup.last_status);
   setClass($("j-pill"), "pill pill-" + bucketOf(rollup.last_status));
-  setText($("j-meta"), data.schedule ? `schedule ${data.schedule}` : "no schedule reported");
+  const where = [`host ${data.host}`];
+  if (data.host !== AGENT) where.push(`agent ${AGENT}`);
+  where.push(data.schedule ? `schedule ${data.schedule}` : "no schedule reported");
+  setText($("j-meta"), where.join(" · "));
+  setText($("crumb-agent"), agentLabel(data.host, AGENT));
+  document.title = `${JOB_LABEL} - ${agentLabel(data.host, AGENT)} - JABS`;
 
   setCard("runs", String(total), `${counts.failed} failed`);
   setCard("rate", judged ? fmtPercent(counts.success / judged) : "–", null);
@@ -275,7 +280,7 @@ function gotoOffset(offset) {
 // ---------------------------------------------------------------- run dialog
 
 const FACTS = [
-  ["status", "Status"], ["started", "Started"], ["finished", "Finished"], ["duration", "Duration"],
+  ["host", "Host"], ["agent", "Agent"], ["status", "Status"], ["started", "Started"], ["finished", "Finished"], ["duration", "Duration"],
   ["type", "Type"], ["target", "Target"], ["source", "Source"], ["destination", "Destination"],
   ["files", "Files"], ["size", "Size"], ["compressed", "Compressed"], ["progress", "Progress"],
   ["error", "Error"], ["external", "Artifact ID"], ["runid", "Run ID"],
@@ -324,6 +329,8 @@ function renderRun(detail) {
   setText($("d-title"), `Run · ${fmtShort(run.started_at, state.tz)}`);
   setText(statusPill, run.status);
   setClass(statusPill, "pill pill-" + bucketOf(run.status));
+  setFact("host", run.host);
+  setFact("agent", run.agent !== run.host ? run.agent : "");
   setFact("started", fmtDateTime(run.started_at, state.tz));
   setFact("finished", run.completed_at ? fmtDateTime(run.completed_at, state.tz) : "");
   setFact("duration", run.runtime_seconds === null ? "" : fmtDuration(run.runtime_seconds));

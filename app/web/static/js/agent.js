@@ -24,7 +24,7 @@ const nowEstimate = () => Date.now() / 1000 + state.clockOffset;
 const activityChart = createActivityChart($("c-activity"), $("activity-note"));
 const jobsTable = createJobsTable({
   table: $("jobs"), body: $("jobs-body"), empty: $("jobs-empty"), count: $("jobs-count"),
-  getTz: () => state.tz, showAgent: false,
+  getTz: () => state.tz, showHost: false,
 });
 
 function setCard(id, value, note, tone) {
@@ -36,7 +36,7 @@ function setCard(id, value, note, tone) {
 function render(data) {
   setText($("a-pill"), AGENT_STATUS_LABEL[data.status]);
   setClass($("a-pill"), "pill pill-" + data.status);
-  const meta = [data.agent_type, data.version ? "v" + data.version : null];
+  const meta = [`host ${data.host}`, data.agent_type, data.version ? "v" + data.version : null];
   if (data.since && data.status !== "up") meta.push(`${AGENT_STATUS_LABEL[data.status].toLowerCase()} since ${fmtShort(data.since, state.tz)}`);
   setText($("a-meta"), meta.filter(Boolean).join(" · "));
 
@@ -53,6 +53,7 @@ function render(data) {
     setText(contact, "never");
   }
   const cfg = data.config;
+  setText($("a-host"), cfg.host || `${data.host} (not set; the agent name is used)`);
   setText($("a-grace"), `${cfg.grace_minutes} min`);
   setText($("a-alerts"), cfg.offline_alerts ? "on" : "off");
   setText($("a-ip"), cfg.allowed_ip || "any");

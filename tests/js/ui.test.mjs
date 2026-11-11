@@ -5,7 +5,7 @@ import {
   fmtDateTime, fmtClock, fmtShort, fmtDayLabel, fmtDuration, fmtRelative, fmtPercent, fmtBytes, fmtTick,
   niceByteTicks, tickValues, reconcile, splitMatches,
 } from "../../app/web/static/js/ui.js";
-import { bucketOf, agentHref, jobHref } from "../../app/web/static/js/shared.js";
+import { bucketOf, agentHref, jobHref, agentLabel, groupByHost, groupKey } from "../../app/web/static/js/shared.js";
 import { totalsText } from "../../app/web/static/js/jobs-table.js";
 
 // 2026-01-15 12:00:00 UTC = 17:30 in Asia/Kolkata
@@ -169,4 +169,24 @@ test("splitMatches marks case-insensitive matches and keeps the original text", 
   assert.deepEqual(splitMatches("abc", ""), [{ text: "abc", match: false }]);
   assert.deepEqual(splitMatches("", "x"), [{ text: "", match: false }]);
   assert.deepEqual(splitMatches("aaa", "aa"), [{ text: "aa", match: true }, { text: "a", match: false }]);
+});
+
+test("agentLabel shows host and agent, or one name when they match", () => {
+  assert.equal(agentLabel("P3Tiny", "snapshot"), "P3Tiny / snapshot");
+  assert.equal(agentLabel("snapshot", "snapshot"), "snapshot");
+});
+
+test("groupByHost puts a header before each host's rows, hosts alphabetical, row order kept", () => {
+  const rows = [
+    { host: "P3Tiny", job: "b", bad: 1 }, { host: "NAS1", job: "a", bad: 0 }, { host: "P3Tiny", job: "a", bad: 0 },
+  ];
+  const items = groupByHost(rows, (members) => ({ bad: members.reduce((n, r) => n + r.bad, 0) }));
+  assert.deepEqual(items.map((i) => (i.group ? `# ${i.host} ${i.count} ${i.bad}` : `${i.host}/${i.job}`)),
+    ["# NAS1 1 0", "NAS1/a", "# P3Tiny 2 1", "P3Tiny/b", "P3Tiny/a"]);
+  assert.deepEqual(groupByHost([]), []);
+});
+
+test("group headers get keys that cannot collide with job rows", () => {
+  assert.notEqual(groupKey({ host: "a" }), "a\u0000job");
+  assert.notEqual(groupKey({ host: "a" }), groupKey({ host: "b" }));
 });

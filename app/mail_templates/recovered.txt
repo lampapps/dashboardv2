@@ -1,5 +1,6 @@
-Agent {{ agent }} is reporting again.
+Agent {{ label }} is reporting again.
 
+Host:           {{ host }}
 Offline since:  {{ down_since }}
 Back at:        {{ back_at }}
 Offline for:    {{ down_for }}

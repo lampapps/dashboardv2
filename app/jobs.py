@@ -107,9 +107,10 @@ def _error_message(run: dict) -> Optional[str]:
     return None
 
 
-def job_rollups(conn: sqlite3.Connection, tz: ZoneInfo, now: float) -> list:
+def job_rollups(conn: sqlite3.Connection, tz: ZoneInfo, now: float, hosts: Optional[dict] = None) -> list:
     """One row per (agent, job_name): latest run, recent history, status counts, next scheduled run.
 
+    `hosts` maps agent name to host; an agent missing from it is shown as its own host.
     Runs that share a job_run_id (several targets in one script invocation) count as one run
     starting at the earliest member, with the most noteworthy member status.
     """
@@ -135,7 +136,7 @@ def job_rollups(conn: sqlite3.Connection, tz: ZoneInfo, now: float) -> list:
     rows = []
     for (agent, job_name), entry in jobs.items():
         next_at, drifted = next_event(schedules.get((agent, job_name)), entry["last_started_at"], tz, now)
-        rows.append({"agent": agent, "job_name": job_name, **entry,
+        rows.append({"agent": agent, "host": (hosts or {}).get(agent, agent), "job_name": job_name, **entry,
                      "next_event_at": next_at, "schedule_drifted": drifted})
     rows.sort(key=lambda r: r["last_started_at"], reverse=True)
     return rows

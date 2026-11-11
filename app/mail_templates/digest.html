@@ -16,7 +16,7 @@
   <table style="border-collapse: collapse; width: 100%; font-size: 14px;">
     {% for o in outages %}
     <tr>
-      <td style="padding: 3px 12px 3px 0;"><strong>{{ o.agent }}</strong></td>
+      <td style="padding: 3px 12px 3px 0;"><strong>{{ o.label }}</strong></td>
       <td style="padding: 3px 12px 3px 0;">down {% if o.began_before %}from before this period{% else %}since {{ o.start }}{% endif %}</td>
       <td style="padding: 3px 0; color: {{ '#b91c1c' if o.ongoing else '#15803d' }};">
         {% if o.ongoing %}still offline{% else %}back {{ o.end }} ({{ o.duration }}){% endif %}
@@ -36,7 +36,7 @@
     {% for p in problems %}
     <tr style="vertical-align: top; border-top: 1px solid #e5e9ee;">
       <td style="padding: 3px 12px 3px 0; white-space: nowrap;">{{ p.when }}</td>
-      <td style="padding: 3px 12px 3px 0;">{{ p.agent }} / {{ p.job }}{% if p.target %}<br><span style="color: #5d6b7a;">{{ p.target }}</span>{% endif %}</td>
+      <td style="padding: 3px 12px 3px 0;">{{ p.label }} / {{ p.job }}{% if p.target %}<br><span style="color: #5d6b7a;">{{ p.target }}</span>{% endif %}</td>
       <td style="padding: 3px 12px 3px 0; color: {{ '#b91c1c' if p.status in ('failed', 'error') else '#b45309' }};">{{ p.status }}</td>
       <td style="padding: 3px 0; color: #5d6b7a;">{{ p.error }}</td>
     </tr>
@@ -54,7 +54,7 @@
     </tr>
     {% for a in per_agent %}
     <tr style="border-top: 1px solid #e5e9ee;">
-      <td style="padding: 3px 16px 3px 0;">{{ a.agent }}</td><td style="padding: 3px 16px 3px 0;">{{ a.success }}</td>
+      <td style="padding: 3px 16px 3px 0;">{{ a.label }}</td><td style="padding: 3px 16px 3px 0;">{{ a.success }}</td>
       <td style="padding: 3px 16px 3px 0;">{{ a.failed }}</td><td style="padding: 3px 0;">{{ a.stopped }}</td>
     </tr>
     {% endfor %}

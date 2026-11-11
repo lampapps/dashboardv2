@@ -1,5 +1,7 @@
-Agent {{ agent }} has not reported in for {{ silent_for }} and is considered offline.
+Agent {{ label }} has not reported in for {{ silent_for }} and is considered offline.
 
+Host:           {{ host }}
+Agent:          {{ agent }}
 Last contact:   {{ last_contact }}
 Offline since:  {{ down_since }}
 Grace period:   {{ grace_minutes }} minutes

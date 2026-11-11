@@ -3,13 +3,14 @@ import {
   el, setText, setClass, setStyle, setTitle, setHidden, setData, readStore, writeStore, reconcile,
   fmtDateTime, fmtShort, fmtDuration,
 } from "./ui.js";
-import { bucketOf, agentHref, jobHref } from "./shared.js";
+import { bucketOf, agentHref, jobHref, groupByHost, groupKey } from "./shared.js";
 
 // Lower rank sorts first when ordering by status, so problems rise to the top.
 const ATTENTION_RANK = { failed: 0, running: 1, stopped: 2, other: 3, success: 4 };
 
 const SORTERS = {
-  job: (a, b) => a.job_name.localeCompare(b.job_name) || a.agent.localeCompare(b.agent),
+  host: (a, b) => a.host.localeCompare(b.host) || a.agent.localeCompare(b.agent) || a.job_name.localeCompare(b.job_name),
+  job: (a, b) => a.job_name.localeCompare(b.job_name) || a.host.localeCompare(b.host) || a.agent.localeCompare(b.agent),
   last: (a, b) => a.last_started_at - b.last_started_at,
   next: (a, b) => (a.next_event_at ?? Infinity) - (b.next_event_at ?? Infinity),
   status: (a, b) => ATTENTION_RANK[bucketOf(a.last_status)] - ATTENTION_RANK[bucketOf(b.last_status)]
@@ -30,10 +31,13 @@ export function totalsText(counts) {
 
 function createRow() {
   const tr = el("tr");
-  const job = el("td");
+  const host = el("td", "col-host");
+  const hostLink = el("a", "host-name block-link");
+  const hostAgent = el("div", "sub");
+  host.append(hostLink, hostAgent);
+  const job = el("td", "col-job");
   const jobLink = el("a", "job-name");
-  const jobAgent = el("a", "sub block-link");
-  job.append(jobLink, jobAgent);
+  job.append(jobLink);
 
   const last = el("td");
   const lastTop = el("div");
@@ -58,19 +62,39 @@ function createRow() {
   recent.append(pips);
 
   const totals = el("td", "tnum");
-  tr.append(job, last, next, recent, totals);
-  tr._refs = { jobLink, jobAgent, pill, when, lastDetail, lastError, progress, bar, nextTime, nextRel, pips, totals, pipSig: "" };
+  tr.append(host, job, last, next, recent, totals);
+  tr._refs = { hostLink, hostAgent, jobLink, pill, when, lastDetail, lastError, progress, bar, nextTime, nextRel, pips, totals, pipSig: "" };
   return tr;
 }
 
-function updateRow(tr, job, tz, showAgent) {
+function createGroupRow() {
+  const tr = el("tr", "group-row");
+  const cell = el("td");
+  cell.colSpan = 6;
+  const name = el("span", "group-name");
+  const summary = el("span", "sub");
+  cell.append(name, summary);
+  tr.append(cell);
+  tr._refs = { name, summary };
+  return tr;
+}
+
+function updateGroupRow(tr, group) {
+  setText(tr._refs.name, group.host);
+  const bits = [`${group.count} job${group.count === 1 ? "" : "s"}`];
+  if (group.failing) bits.push(`${group.failing} failing`);
+  setText(tr._refs.summary, bits.join(" · "));
+}
+
+function updateRow(tr, job, tz) {
   const r = tr._refs;
   const bucket = bucketOf(job.last_status);
+  setText(r.hostLink, job.host);
+  if (r.hostLink.getAttribute("href") !== agentHref(job.agent)) r.hostLink.href = agentHref(job.agent);
+  setText(r.hostAgent, job.agent === job.host ? "" : job.agent);
+  setHidden(r.hostAgent, job.agent === job.host);
   setText(r.jobLink, job.job_name || "(unnamed)");
   if (r.jobLink.getAttribute("href") !== jobHref(job.agent, job.job_name)) r.jobLink.href = jobHref(job.agent, job.job_name);
-  setHidden(r.jobAgent, !showAgent);
-  setText(r.jobAgent, job.agent);
-  if (r.jobAgent.getAttribute("href") !== agentHref(job.agent)) r.jobAgent.href = agentHref(job.agent);
   setText(r.pill, job.last_status);
   setClass(r.pill, "pill pill-" + bucket);
   setData(r.when, "ts", String(job.last_started_at));
@@ -113,33 +137,39 @@ function updateRow(tr, job, tz, showAgent) {
 }
 
 // Wires sorting on the table's [data-sort] buttons and renders rows into `body`.
-export function createJobsTable({ table, body, empty, count, getTz, showAgent = true }) {
+// With showHost false (a page about one agent) the Host column is hidden.
+export function createJobsTable({ table, body, empty, count, getTz, showHost = true }) {
+  table.classList.toggle("no-host", !showHost);
   const state = {
     jobs: [],
     filter: "",
     problemsOnly: false,
+    group: "none",
     sort: { key: readStore("sortKey") || "last", dir: readStore("sortDir") || "desc" },
   };
 
   function visible() {
     const needle = state.filter.trim().toLowerCase();
     const rows = state.jobs.filter((j) => {
-      if (needle && !(j.job_name + " " + j.agent).toLowerCase().includes(needle)) return false;
+      if (needle && !(j.job_name + " " + j.host + " " + j.agent).toLowerCase().includes(needle)) return false;
       if (state.problemsOnly && ["success", "running"].includes(bucketOf(j.last_status))) return false;
       return true;
     });
     const compare = SORTERS[state.sort.key] || SORTERS.last;
     const sign = state.sort.dir === "asc" ? 1 : -1;
-    return rows.sort((a, b) => sign * compare(a, b) || a.job_name.localeCompare(b.job_name));
+    return rows.sort((a, b) => sign * compare(a, b) || SORTERS.job(a, b));
   }
 
   function render(jobs) {
     if (jobs) state.jobs = jobs;
     const rows = visible();
-    reconcile(body, rows, {
-      key: (j) => j.agent + "\u0000" + j.job_name,
-      create: createRow,
-      update: (tr, job) => updateRow(tr, job, getTz(), showAgent),
+    const items = state.group === "host"
+      ? groupByHost(rows, (members) => ({ failing: members.filter((j) => bucketOf(j.last_status) === "failed").length }))
+      : rows;
+    reconcile(body, items, {
+      key: (item) => (item.group ? groupKey(item) : item.agent + "\u0000" + item.job_name),
+      create: (item) => (item.group ? createGroupRow() : createRow()),
+      update: (tr, item) => (item.group ? updateGroupRow(tr, item) : updateRow(tr, item, getTz())),
     });
     setHidden(empty, rows.length > 0);
     setText(empty, state.jobs.length ? "No jobs match the filter." : "No runs have been reported yet.");
@@ -167,5 +197,6 @@ export function createJobsTable({ table, body, empty, count, getTz, showAgent = 
     render,
     setFilter(text) { state.filter = text; render(); },
     setProblemsOnly(value) { state.problemsOnly = value; render(); },
+    setGroup(value) { state.group = value === "host" ? "host" : "none"; render(); },
   };
 }

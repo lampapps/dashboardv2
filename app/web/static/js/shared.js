@@ -13,6 +13,27 @@ export const AGENT_STATUS_LABEL = { up: "Up", down: "Down", new: "New", disabled
 export const agentHref = (name) => `/agents/${encodeURIComponent(name)}`;
 export const jobHref = (agent, job) => `${agentHref(agent)}/job?name=${encodeURIComponent(job)}`;
 
+// "host / agent", or just the one name when they are the same.
+export const agentLabel = (host, agent) => (host === agent ? agent : `${host} / ${agent}`);
+
+export const groupKey = (item) => "\u0001group\u0000" + item.host;
+
+// Inserts a {group: true, host, count, ...summarize(members)} header before each host's rows.
+// Hosts come out alphabetically; rows keep their incoming order within a host.
+export function groupByHost(rows, summarize = () => ({})) {
+  const byHost = new Map();
+  rows.forEach((row) => {
+    if (!byHost.has(row.host)) byHost.set(row.host, []);
+    byHost.get(row.host).push(row);
+  });
+  const items = [];
+  [...byHost.keys()].sort((a, b) => a.localeCompare(b)).forEach((host) => {
+    const members = byHost.get(host);
+    items.push({ group: true, host, count: members.length, ...summarize(members) }, ...members);
+  });
+  return items;
+}
+
 // Segments are positioned by percentage of the range and reused in place on every update.
 export function syncTimeline(container, spans, start, end, tz) {
   const total = end - start;

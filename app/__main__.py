@@ -79,7 +79,7 @@ def _cmd_reset(args: argparse.Namespace) -> int:
 
 def _cmd_agent_add(args: argparse.Namespace) -> int:
     key = config.add_agent(args.name, grace_minutes=args.grace_minutes, notes=args.notes,
-                           allowed_ip=args.allowed_ip)
+                           allowed_ip=args.allowed_ip, host=args.host)
     print(f"Agent '{args.name}' registered in {settings.AGENTS_PATH}")
     print(f"API key (shown once; set it as JABS_AGENT_KEY on the agent): {key}")
     return 0
@@ -91,7 +91,7 @@ def _cmd_agent_list(_args: argparse.Namespace) -> int:
         print("no agents registered")
     for agent in agents:
         state = "enabled" if agent.enabled else "disabled"
-        print(f"{agent.name}\t{state}\tgrace {agent.grace_minutes} min\t{agent.notes}")
+        print(f"{agent.name}\t{agent.host or '-'}\t{state}\tgrace {agent.grace_minutes} min\t{agent.notes}")
     return 0
 
 
@@ -136,6 +136,7 @@ def build_parser() -> argparse.ArgumentParser:
     agent_sub = agent.add_subparsers(dest="agent_command", metavar="subcommand")
     agent_add = agent_sub.add_parser("add", help="register an agent and print its API key once")
     agent_add.add_argument("name")
+    agent_add.add_argument("--host", default="", help="machine the agent runs on, shown beside its jobs (default: the agent name)")
     agent_add.add_argument("--grace-minutes", type=int, default=60,
                            help="minutes without contact before the agent counts as down")
     agent_add.add_argument("--notes", default="")

@@ -2,6 +2,7 @@ import {
   el, setText, setHidden, readStore, writeStore, getJson, poll, initThemeToggle,
   fmtClock, fmtDateTime, fmtRelative, splitMatches,
 } from "./ui.js";
+import { agentLabel } from "./shared.js";
 
 const $ = (id) => document.getElementById(id);
 const LEVELS = ["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "other"];
@@ -185,10 +186,12 @@ function renderChips() {
   });
 }
 
-function fillSelect(select, values, selected) {
-  const existing = [...select.options].map((o) => o.value);
-  if (existing.length !== values.length || existing.some((v, i) => v !== values[i])) {
-    select.replaceChildren(...values.map((v) => { const o = el("option", null, v); o.value = v; return o; }));
+// `options` is a list of [value, label]; the list is rebuilt only when it changed.
+function fillSelect(select, options, selected) {
+  const key = (value, label) => value + "\u0000" + label;
+  const existing = [...select.options].map((o) => key(o.value, o.text));
+  if (existing.length !== options.length || existing.some((k, i) => k !== key(...options[i]))) {
+    select.replaceChildren(...options.map(([value, label]) => { const o = el("option", null, label); o.value = value; return o; }));
   }
   select.value = selected;
 }
@@ -201,12 +204,13 @@ function renderList() {
   document.querySelector(".log-wrap").hidden = empty;
   if (empty) { setText($("log-summary"), ""); return false; }
 
-  const agents = [...new Set(state.logs.map((l) => l.agent))];
+  const hosts = new Map(state.logs.map((l) => [l.agent, l.host]));
+  const agents = [...hosts.keys()].sort((a, b) => hosts.get(a).localeCompare(hosts.get(b)) || a.localeCompare(b));
   if (!agents.includes(state.agent)) state.agent = agents[0];
   const logsOfAgent = state.logs.filter((l) => l.agent === state.agent).map((l) => l.log);
   if (!logsOfAgent.includes(state.log)) state.log = logsOfAgent[0];
-  fillSelect($("l-agent"), agents, state.agent);
-  fillSelect($("l-log"), logsOfAgent, state.log);
+  fillSelect($("l-agent"), agents.map((a) => [a, agentLabel(hosts.get(a), a)]), state.agent);
+  fillSelect($("l-log"), logsOfAgent.map((name) => [name, name]), state.log);
   renderChips();
   const entry = currentEntry();
   setText($("log-summary"), `${entry.lines.toLocaleString("en-US")} lines kept · last line ${fmtRelative(entry.last_ts, nowEstimate())}`);

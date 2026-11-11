@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from croniter import croniter
 
 from . import activity, db, mailer, status
+from .agents import host_map
 from .config import Config, ConfigError, load_agents
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,11 @@ MAX_ERROR_CHARS = 200
 
 def _fmt(ts: float, tz: ZoneInfo) -> str:
     return datetime.fromtimestamp(ts, tz).strftime("%Y-%m-%d %H:%M %Z")
+
+
+def _label(host: str, name: str) -> str:
+    """How an agent is named in mail: its host and agent name, or just one when they are the same."""
+    return name if host == name else f"{host} / {name}"
 
 
 def _duration(seconds: float) -> str:
@@ -43,29 +49,31 @@ def _send_offline_alert(conn: sqlite3.Connection, cfg: Config, agent, state: sql
         return
     tz = ZoneInfo(cfg.timezone)
     last_contact = state["last_heartbeat"]
+    host = agent.host or agent.name
     text, html = mailer.render(
-        "offline", agent=agent.name, notes=agent.notes, grace_minutes=agent.grace_minutes,
+        "offline", agent=agent.name, host=host, label=_label(host, agent.name), notes=agent.notes, grace_minutes=agent.grace_minutes,
         last_contact=_fmt(last_contact, tz) if last_contact else "never",
         silent_for=_duration(now - last_contact) if last_contact else "an unknown time",
         down_since=_fmt(state["status_since"], tz), alert_number=count + 1, max_alerts=alert.max_alerts,
         recovery=alert.send_recovery, generated=_fmt(now, tz))
-    if mailer.send(cfg.email, f"JABS alert: agent {agent.name} is offline", text, html):
+    if mailer.send(cfg.email, f"JABS alert: agent {_label(host, agent.name)} is offline", text, html):
         with db.transaction(conn):
             conn.execute("UPDATE agent_state SET alert_count = alert_count + 1, last_alert_at = ? WHERE name = ?",
                          (now, agent.name))
 
 
-def _send_recovery(conn: sqlite3.Connection, cfg: Config, name: str, state: sqlite3.Row, now: float) -> None:
+def _send_recovery(conn: sqlite3.Connection, cfg: Config, agent, state: sqlite3.Row, now: float) -> None:
     tz = ZoneInfo(cfg.timezone)
+    host = agent.host or agent.name
     went_down = conn.execute("SELECT ts FROM agent_status_log WHERE agent = ? AND status = 'down' "
-                             "ORDER BY ts DESC LIMIT 1", (name,)).fetchone()
+                             "ORDER BY ts DESC LIMIT 1", (agent.name,)).fetchone()
     back_at = state["status_since"] or now
     down_ts = went_down["ts"] if went_down else None
     text, html = mailer.render(
-        "recovered", agent=name, generated=_fmt(now, tz), back_at=_fmt(back_at, tz),
+        "recovered", agent=agent.name, host=host, label=_label(host, agent.name), generated=_fmt(now, tz), back_at=_fmt(back_at, tz),
         down_since=_fmt(down_ts, tz) if down_ts else "unknown",
         down_for=_duration(back_at - down_ts) if down_ts else "unknown")
-    mailer.send(cfg.email, f"JABS: agent {name} is back", text, html)
+    mailer.send(cfg.email, f"JABS: agent {_label(host, agent.name)} is back", text, html)
 
 
 def offline_alerts(conn: sqlite3.Connection, cfg: Config, now: float) -> None:
@@ -87,7 +95,7 @@ def offline_alerts(conn: sqlite3.Connection, cfg: Config, now: float) -> None:
             _send_offline_alert(conn, cfg, agent, state, now)
         elif state["status"] in ("up", "disabled") and state["alert_count"]:
             if state["status"] == "up" and alert.send_recovery:
-                _send_recovery(conn, cfg, agent.name, state, now)
+                _send_recovery(conn, cfg, agent, state, now)
             with db.transaction(conn):
                 conn.execute("UPDATE agent_state SET alert_count = 0, last_alert_at = NULL WHERE name = ?",
                              (agent.name,))
@@ -95,9 +103,10 @@ def offline_alerts(conn: sqlite3.Connection, cfg: Config, now: float) -> None:
 
 # ---------------------------------------------------------------- digest
 
-def digest_data(conn: sqlite3.Connection, cfg: Config, agent_names: list, since: float, now: float) -> dict:
+def digest_data(conn: sqlite3.Connection, cfg: Config, agents: list, since: float, now: float) -> dict:
     """What happened between `since` and `now`: finished runs, problem runs and agent outages."""
     tz = ZoneInfo(cfg.timezone)
+    hosts = host_map(agents)
     totals = {b: 0 for b in ("success", "failed", "stopped", "other")}
     per_agent: dict = {}
     problems = []
@@ -109,27 +118,31 @@ def digest_data(conn: sqlite3.Connection, cfg: Config, agent_names: list, since:
         if bucket == "running":
             continue
         totals[bucket] += 1
-        per_agent.setdefault(row["agent"], {"agent": row["agent"], **{b: 0 for b in totals}})[bucket] += 1
+        host = hosts.get(row["agent"], row["agent"])
+        per_agent.setdefault(row["agent"], {
+            "agent": row["agent"], "host": host, "label": _label(host, row["agent"]), **{b: 0 for b in totals}})[bucket] += 1
         if bucket in ("failed", "stopped"):
             problems.append({
-                "when": _fmt(row["completed_at"], tz), "agent": row["agent"], "job": row["job_name"],
+                "when": _fmt(row["completed_at"], tz), "agent": row["agent"], "host": host,
+                "label": _label(host, row["agent"]), "job": row["job_name"],
                 "target": row["target_label"], "status": row["status"],
                 "error": " ".join((row["error_message"] or "").split())[:MAX_ERROR_CHARS]})
 
     outages = []
-    for name in agent_names:
+    for agent in agents:
+        name = agent.name
         state = conn.execute("SELECT status FROM agent_state WHERE name = ?", (name,)).fetchone()
         for start, end, kind in status.timeline(conn, name, since, now):
             if kind != "down":
                 continue
             ongoing = end >= now and state is not None and state["status"] == "down"
-            outages.append({"agent": name, "start": _fmt(start, tz), "began_before": start <= since,
+            outages.append({"agent": name, "host": hosts[name], "label": _label(hosts[name], name), "start": _fmt(start, tz), "began_before": start <= since,
                             "end": _fmt(end, tz), "ongoing": ongoing, "duration": _duration(end - start),
                             "sort": start})
     outages.sort(key=lambda o: o["sort"])
     return {
         "period_start": _fmt(since, tz), "period_end": _fmt(now, tz), "generated": _fmt(now, tz),
-        "totals": totals, "per_agent": sorted(per_agent.values(), key=lambda a: a["agent"]),
+        "totals": totals, "per_agent": sorted(per_agent.values(), key=lambda a: (a["host"], a["agent"])),
         "problems": problems[:MAX_DIGEST_PROBLEMS], "problems_more": max(0, len(problems) - MAX_DIGEST_PROBLEMS),
         "outages": outages,
     }
@@ -146,10 +159,10 @@ def _digest_subject(data: dict, now: float, tz: ZoneInfo) -> str:
 def send_digest(conn: sqlite3.Connection, cfg: Config, since: float, now: float) -> Optional[bool]:
     """Send the digest for the period; None when there was nothing to report."""
     try:
-        names = [agent.name for agent in load_agents()]
+        agents = load_agents()
     except ConfigError:
-        names = []
-    data = digest_data(conn, cfg, names, since, now)
+        agents = []
+    data = digest_data(conn, cfg, agents, since, now)
     if not (data["problems"] or data["outages"] or any(data["totals"].values())):
         return None
     text, html = mailer.render("digest", **data)

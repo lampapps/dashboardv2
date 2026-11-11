@@ -69,6 +69,12 @@
     <h2>Jobs</h2>
     <div class="filters">
       <input id="job-search" class="input" type="search" placeholder="Filter jobs" aria-label="Filter jobs" autocomplete="off">
+      <label class="sub">Group by
+        <select id="group-by" class="input" aria-label="Group jobs by">
+          <option value="none">None</option>
+          <option value="host">Host</option>
+        </select>
+      </label>
       <label class="check"><input id="problems-only" type="checkbox"> Problems only</label>
       <span class="sub" id="jobs-count"></span>
     </div>
@@ -77,6 +83,7 @@
     <table class="jobs" id="jobs">
       <thead>
         <tr>
+          <th scope="col" aria-sort="none" class="col-host"><button class="sort" type="button" data-sort="host">Host</button></th>
           <th scope="col" aria-sort="none"><button class="sort" type="button" data-sort="job">Job</button></th>
           <th scope="col" aria-sort="none"><button class="sort" type="button" data-sort="last">Last run</button></th>
           <th scope="col" aria-sort="none"><button class="sort" type="button" data-sort="next">Next run</button></th>

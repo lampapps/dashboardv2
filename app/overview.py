@@ -5,6 +5,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from . import activity, jobs
+from .agents import host_map
 from .config import AgentConfig, Config
 from .status import effective_status, gap_end
 
@@ -37,14 +38,14 @@ def _agents(conn: sqlite3.Connection, configured: list, now: float) -> list:
     for a in sorted(configured, key=lambda a: a.name):
         state = states.get(a.name)
         heartbeat = state["last_heartbeat"] if state else None
-        rows.append({"name": a.name, "last_heartbeat": heartbeat,
+        rows.append({"name": a.name, "host": a.host or a.name, "last_heartbeat": heartbeat,
                      "status": effective_status(a, state["status"] if state else None, heartbeat, now, gap)})
     return rows
 
 
 def build(conn: sqlite3.Connection, cfg: Config, configured: list, now: float, days: int) -> dict:
     tz = ZoneInfo(cfg.timezone)
-    rows = jobs.job_rollups(conn, tz, now)
+    rows = jobs.job_rollups(conn, tz, now, host_map(configured))
     agents = _agents(conn, configured, now)
 
     day = _finished_counts(conn, now - DAY_S)

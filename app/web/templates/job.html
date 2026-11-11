@@ -4,7 +4,7 @@
 {% block content %}
 <nav class="crumbs sub" aria-label="Breadcrumb">
   <a href="{{ url_for('pages.agents') }}">Agents</a> <span aria-hidden="true">›</span>
-  <a href="{{ url_for('pages.agent', name=agent_name) }}">{{ agent_name }}</a> <span aria-hidden="true">›</span>
+  <a id="crumb-agent" href="{{ url_for('pages.agent', name=agent_name) }}">{{ agent_name }}</a> <span aria-hidden="true">›</span>
   <span id="crumb-job"></span>
 </nav>
 

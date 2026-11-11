@@ -20,6 +20,7 @@ from . import settings
 PathLike = Union[str, Path]
 
 AGENT_NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+AGENT_HOST_PATTERN = r"^([A-Za-z0-9][A-Za-z0-9._-]{0,63})?$"
 EMAIL_ADDRESS = re.compile(r"^[^@\s<>]+@[^@\s<>]+$")
 AGENTS_HEADER = (
     "# Agents allowed to report to the dashboard (API keys are stored only as SHA-256 hashes).\n"
@@ -34,6 +35,14 @@ class ConfigError(Exception):
 
 class _Model(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _blank_means_default(cls, data):
+        # A key left empty in YAML (`badges:`) loads as None; treat it as not set.
+        if isinstance(data, dict):
+            return {key: value for key, value in data.items() if value is not None}
+        return data
 
 
 def _check_http_url(value: str) -> str:
@@ -164,6 +173,8 @@ class Config(_Model):
 
 class AgentConfig(_Model):
     name: str = Field(pattern=AGENT_NAME_PATTERN)
+    # The machine the agent runs on; shown beside every job. Blank falls back to the agent name.
+    host: str = Field("", pattern=AGENT_HOST_PATTERN)
     key_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     enabled: bool = True
     grace_minutes: int = Field(60, ge=1, le=10080)
@@ -262,13 +273,13 @@ def _write_agents(agents: list[AgentConfig], path: Path) -> None:
 
 
 def add_agent(name: str, grace_minutes: int = 60, notes: str = "",
-              allowed_ip: Optional[str] = None, path: Optional[PathLike] = None) -> str:
+              allowed_ip: Optional[str] = None, path: Optional[PathLike] = None, host: str = "") -> str:
     """Register an agent and return its API key; only the key's hash is stored."""
     path = Path(path or settings.AGENTS_PATH)
     agents = load_agents(path)
     key = generate_key()
     try:
-        entry = AgentConfig(name=name, key_hash=hash_key(key), grace_minutes=grace_minutes,
+        entry = AgentConfig(name=name, host=host, key_hash=hash_key(key), grace_minutes=grace_minutes,
                             notes=notes, allowed_ip=allowed_ip)
     except ValidationError as exc:
         raise ConfigError(_format_errors(path, exc)) from exc

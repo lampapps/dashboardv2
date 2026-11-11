@@ -7,11 +7,19 @@
     <h2>Agents</h2>
     <div class="sub" id="agents-summary"></div>
   </div>
+  <div class="filters">
+  <label class="sub">Group by
+    <select id="agent-group" class="input" aria-label="Group agents by">
+      <option value="host">Host</option>
+      <option value="none">None</option>
+    </select>
+  </label>
   <div class="ranges" id="agent-ranges" role="group" aria-label="History range">
     <button class="btn" type="button" data-range="24h" aria-pressed="false">24 h</button>
     <button class="btn" type="button" data-range="7d" aria-pressed="false">7 d</button>
     <button class="btn" type="button" data-range="30d" aria-pressed="false">30 d</button>
     <button class="btn" type="button" data-range="90d" aria-pressed="false">90 d</button>
+  </div>
   </div>
 </section>
 

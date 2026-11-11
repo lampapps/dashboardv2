@@ -2,7 +2,7 @@ import {
   el, setText, setClass, setStyle, setTitle, setHidden, setData, readStore, writeStore, reconcile, getJson, poll,
   initThemeToggle, refreshRelative, fmtClock, fmtDateTime, fmtRelative, fmtShort, fmtTick, fmtPercent,
 } from "./ui.js";
-import { AGENT_STATUS_LABEL as STATUS_LABEL, agentHref, bucketOf, syncTimeline } from "./shared.js";
+import { AGENT_STATUS_LABEL as STATUS_LABEL, agentHref, bucketOf, groupByHost, groupKey, syncTimeline } from "./shared.js";
 
 const $ = (id) => document.getElementById(id);
 const POLL_MS = 15000;
@@ -10,6 +10,7 @@ const RANGES = ["24h", "7d", "30d", "90d"];
 
 const state = {
   range: RANGES.includes(readStore("agentRange")) ? readStore("agentRange") : "7d",
+  group: readStore("agentGroup") === "none" ? "none" : "host",
   data: null,
   etag: null,
   tz: "UTC",
@@ -53,6 +54,7 @@ function createCard() {
   axis.append(axisStart, axisEnd);
 
   const facts = el("dl", "facts");
+  const host = fact(facts, "Host");
   const lastContact = fact(facts, "Last contact");
   const jobs = fact(facts, "Jobs");
   const lastRun = fact(facts, "Last run");
@@ -70,7 +72,7 @@ function createCard() {
   details.append(cfg);
 
   card.append(head, meta, uptimeRow, timeline, axis, facts, details);
-  card._refs = { nameLink, pill, meta, uptime, uptimeLabel, timeline, axisStart, lastContact, jobs, lastRunPill, lastRunText, lastRun, ...refs };
+  card._refs = { nameLink, pill, meta, uptime, uptimeLabel, timeline, axisStart, host, lastContact, jobs, lastRunPill, lastRunText, lastRun, ...refs };
   return card;
 }
 
@@ -85,6 +87,7 @@ function updateCard(card, agent) {
   if (agent.since && agent.status !== "up") meta.push(`${STATUS_LABEL[agent.status].toLowerCase()} since ${fmtShort(agent.since, state.tz)}`);
   setText(r.meta, meta.filter(Boolean).join(" · "));
 
+  setText(r.host, agent.host);
   setText(r.uptime, agent.uptime === null ? "–" : fmtPercent(agent.uptime));
   setText(r.uptimeLabel, agent.uptime === null ? "no up/down history in this range" : `up over the last ${data.range}`);
   syncTimeline(r.timeline, agent.spans, data.start, data.end, state.tz);
@@ -125,8 +128,31 @@ function updateCard(card, agent) {
 
 // ---------------------------------------------------------------- render and fetch
 
+function createGroupHead() {
+  const head = el("div", "group-head");
+  const name = el("span", "group-name");
+  const summary = el("span", "sub");
+  head.append(name, summary);
+  head._refs = { name, summary };
+  return head;
+}
+
+function updateGroupHead(head, group) {
+  setText(head._refs.name, group.host);
+  const bits = [`${group.count} agent${group.count === 1 ? "" : "s"}`];
+  if (group.down) bits.push(`${group.down} down`);
+  setText(head._refs.summary, bits.join(" · "));
+}
+
 function render(data) {
-  reconcile($("agent-grid"), data.agents, { key: (a) => a.name, create: createCard, update: updateCard });
+  const items = state.group === "host"
+    ? groupByHost(data.agents, (members) => ({ down: members.filter((a) => a.status === "down").length }))
+    : data.agents;
+  reconcile($("agent-grid"), items, {
+    key: (item) => (item.group ? groupKey(item) : item.name),
+    create: (item) => (item.group ? createGroupHead() : createCard()),
+    update: (node, item) => (item.group ? updateGroupHead(node, item) : updateCard(node, item)),
+  });
   setHidden($("agents-empty"), data.agents.length > 0);
   const active = data.agents.filter((a) => a.status !== "disabled");
   const up = active.filter((a) => a.status === "up").length;
@@ -175,6 +201,12 @@ function markRange() {
 
 initThemeToggle($("theme-toggle"));
 markRange();
+$("agent-group").value = state.group;
+$("agent-group").addEventListener("change", (event) => {
+  state.group = event.target.value === "none" ? "none" : "host";
+  writeStore("agentGroup", state.group);
+  if (state.data) render(state.data);
+});
 document.querySelectorAll("#agent-ranges button").forEach((b) => {
   b.addEventListener("click", () => {
     state.range = b.dataset.range;

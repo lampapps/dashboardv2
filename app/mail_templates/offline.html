@@ -1,9 +1,11 @@
 <!doctype html>
 <html>
 <body style="font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color: #1d2733; max-width: 640px;">
-  <h2 style="color: #b91c1c; margin-bottom: .25rem;">Agent {{ agent }} is offline</h2>
+  <h2 style="color: #b91c1c; margin-bottom: .25rem;">Agent {{ label }} is offline</h2>
   <p>No report for {{ silent_for }}, which is past its grace period.</p>
   <table style="border-collapse: collapse;">
+    <tr><td style="padding: 2px 16px 2px 0; color: #5d6b7a;">Host</td><td>{{ host }}</td></tr>
+    <tr><td style="padding: 2px 16px 2px 0; color: #5d6b7a;">Agent</td><td>{{ agent }}</td></tr>
     <tr><td style="padding: 2px 16px 2px 0; color: #5d6b7a;">Last contact</td><td>{{ last_contact }}</td></tr>
     <tr><td style="padding: 2px 16px 2px 0; color: #5d6b7a;">Offline since</td><td>{{ down_since }}</td></tr>
     <tr><td style="padding: 2px 16px 2px 0; color: #5d6b7a;">Grace period</td><td>{{ grace_minutes }} minutes</td></tr>

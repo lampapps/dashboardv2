@@ -29,7 +29,7 @@ const nowEstimate = () => Date.now() / 1000 + state.clockOffset;
 const activityChart = createActivityChart($("c-activity"), $("activity-note"));
 const jobsTable = createJobsTable({
   table: $("jobs"), body: $("jobs-body"), empty: $("jobs-empty"), count: $("jobs-count"),
-  getTz: () => state.tz, showAgent: true,
+  getTz: () => state.tz, showHost: true,
 });
 
 // ---------------------------------------------------------------- summary cards and banners
@@ -164,6 +164,13 @@ function wire() {
     jobsTable.setProblemsOnly(event.target.checked);
   });
   $("job-search").addEventListener("input", (event) => jobsTable.setFilter(event.target.value));
+  const groupBy = $("group-by");
+  groupBy.value = readStore("jobGroup") === "host" ? "host" : "none";
+  jobsTable.setGroup(groupBy.value);
+  groupBy.addEventListener("change", (event) => {
+    writeStore("jobGroup", event.target.value);
+    jobsTable.setGroup(event.target.value);
+  });
 }
 
 markRange();

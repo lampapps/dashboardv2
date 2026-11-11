@@ -5,6 +5,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from . import activity, jobs, overview, storage
+from .agents import host_map
 from .config import AgentConfig, Config
 from .status import effective_status, evaluate, gap_end, timeline, uptime
 
@@ -15,13 +16,13 @@ _ATTENTION = {"down": 0, "unknown": 1, "new": 2, "up": 3, "disabled": 4}
 class _Context:
     """Lookups shared by every agent card, read once per request."""
 
-    def __init__(self, conn: sqlite3.Connection, cfg: Config, now: float):
-        self.conn, self.cfg, self.now = conn, cfg, now
+    def __init__(self, conn: sqlite3.Connection, cfg: Config, now: float, hosts: dict):
+        self.conn, self.cfg, self.now, self.hosts = conn, cfg, now, hosts
         self.gap = gap_end(conn)
         self.states = {row["name"]: row for row in conn.execute(
             "SELECT name, version, agent_type, last_heartbeat, status, status_since FROM agent_state")}
         self.jobs_by_agent: dict = {}
-        for row in jobs.job_rollups(conn, ZoneInfo(cfg.timezone), now):
+        for row in jobs.job_rollups(conn, ZoneInfo(cfg.timezone), now, hosts):
             self.jobs_by_agent.setdefault(row["agent"], []).append(row)
         self.schedules: dict = {}
         for row in conn.execute("SELECT agent, job_name, cron_schedule FROM job_schedules ORDER BY job_name"):
@@ -40,13 +41,14 @@ def _card(ctx: _Context, agent: AgentConfig, start: float) -> dict:
     latest = max(agent_jobs, key=lambda j: j["last_started_at"], default=None)
     return {
         "name": agent.name,
+        "host": ctx.hosts.get(agent.name, agent.name),
         "status": current,
         "since": pending[1] if pending else (state["status_since"] if state and current == stored else None),
         "last_heartbeat": heartbeat,
         "version": state["version"] if state else None,
         "agent_type": state["agent_type"] if state else None,
         "config": {
-            "enabled": agent.enabled, "grace_minutes": agent.grace_minutes, "notes": agent.notes,
+            "enabled": agent.enabled, "host": agent.host, "grace_minutes": agent.grace_minutes, "notes": agent.notes,
             "allowed_ip": agent.allowed_ip, "offline_alerts": agent.offline_alerts,
         },
         "uptime": uptime(spans),
@@ -64,7 +66,7 @@ def _card(ctx: _Context, agent: AgentConfig, start: float) -> dict:
 def build(conn: sqlite3.Connection, cfg: Config, configured: list, now: float, range_key: str) -> dict:
     key, span = storage.range_seconds(range_key)
     start = now - span
-    ctx = _Context(conn, cfg, now)
+    ctx = _Context(conn, cfg, now, host_map(configured))
     agents = [_card(ctx, agent, start) for agent in configured]
     agents.sort(key=lambda a: (_ATTENTION[a["status"]], a["name"]))
     return {"now": now, "timezone": cfg.timezone, "range": key, "start": start, "end": now, "agents": agents}
@@ -84,7 +86,7 @@ def detail(conn: sqlite3.Connection, cfg: Config, agent: AgentConfig, now: float
     key, span = storage.range_seconds(range_key)
     days = overview.clamp_days(span // 86400)
     start = now - span
-    ctx = _Context(conn, cfg, now)
+    ctx = _Context(conn, cfg, now, host_map([agent]))
     card = _card(ctx, agent, start)
     tz = ZoneInfo(cfg.timezone)
     chart = activity.activity(conn, tz, now, days, cfg.retention.runs_days, agent=agent.name)
