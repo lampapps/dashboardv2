@@ -95,6 +95,13 @@ def _cmd_agent_list(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_agent_rekey(args: argparse.Namespace) -> int:
+    key = config.rekey_agent(args.name)
+    print(f"Agent '{args.name}' has a new key; the old one no longer works.")
+    print(f"API key (shown once; set it as JABS_AGENT_KEY on the agent): {key}")
+    return 0
+
+
 def _cmd_agent_enable(args: argparse.Namespace) -> int:
     config.set_agent_enabled(args.name, True)
     print(f"Agent '{args.name}' enabled")
@@ -108,7 +115,7 @@ def _cmd_agent_disable(args: argparse.Namespace) -> int:
 
 
 def _cmd_agent_usage(_args: argparse.Namespace) -> int:
-    print("usage: python -m app agent {add,list,enable,disable} ...", file=sys.stderr)
+    print("usage: python -m app agent {add,list,rekey,enable,disable} ...", file=sys.stderr)
     return 2
 
 
@@ -143,6 +150,9 @@ def build_parser() -> argparse.ArgumentParser:
     agent_add.add_argument("--allowed-ip", help="only accept this agent's key from this address")
     agent_add.set_defaults(func=_cmd_agent_add)
     agent_sub.add_parser("list", help="list registered agents").set_defaults(func=_cmd_agent_list)
+    rekey = agent_sub.add_parser("rekey", help="issue a new API key for an agent, keeping its name and history")
+    rekey.add_argument("name")
+    rekey.set_defaults(func=_cmd_agent_rekey)
     for verb, func in (("enable", _cmd_agent_enable), ("disable", _cmd_agent_disable)):
         verb_parser = agent_sub.add_parser(verb, help=f"{verb} a registered agent")
         verb_parser.add_argument("name")

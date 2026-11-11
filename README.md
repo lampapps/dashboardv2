@@ -61,7 +61,7 @@ Logs go to the journal; there are no log files.
 - `email`: SMTP server, recipients, digest schedule, offline alerts.
 - `retention`: how long runs, rollups, status history, storage samples and log lines are kept.
 
-`config/agents.yaml` is the agent registry. Keys are stored only as SHA-256 hashes. Edits take effect without a restart.
+`config/agents.yaml` is the agent registry. Keys are stored only as SHA-256 hashes. Edits take effect without a restart. An agent is identified by its key, so renaming an entry in the file keeps its key working, but its history (stored under the name) starts again under the new name. Names use letters, digits, `.`, `_` and `-`. If the file is invalid the dashboard logs why, keeps the last good copy while running, and rejects every key if it starts with none; `python -m app config` shows the error.
 
 `.env` holds secrets: `JABS_SMTP_USER`, `JABS_SMTP_PASS`, and `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` for S3. `ENV_MODE=development` raises the log level to DEBUG and prefixes email subjects with `[DEV]`.
 
@@ -80,6 +80,7 @@ Run as `.venv/bin/python -m app <command>`.
 | `testmail` | Send a test message with the email settings |
 | `agent add NAME [--host HOST] [--grace-minutes N] [--notes TEXT] [--allowed-ip IP]` | Register an agent and print its key once |
 | `agent list`, `agent enable NAME`, `agent disable NAME` | Manage the registry; a disabled agent's key is rejected |
+| `agent rekey NAME` | Issue a new API key for an agent (printed once); the old key stops working at once, the name and history stay |
 | `backup [--dest FILE]` | Consistent copy of the database, safe while running |
 | `reset --yes` | Delete the database and all history |
 

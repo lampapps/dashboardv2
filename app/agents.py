@@ -18,6 +18,7 @@ class AgentRegistry:
         self._lock = threading.Lock()
         self._signature: Optional[tuple] = None
         self._by_hash: dict = {}
+        self.error: Optional[str] = None  # why the file could not be loaded, None while it is fine
 
     def _current_signature(self) -> Optional[tuple]:
         try:
@@ -35,11 +36,19 @@ class AgentRegistry:
                 agents = load_agents(self._path)
             except ConfigError as exc:
                 # Keep serving the last good registry; remember the signature so we log once.
-                logger.error("agents.yaml not reloaded, keeping previous agents: %s", exc)
+                self.error = str(exc)
                 self._signature = signature
+                if self._by_hash:
+                    logger.error("agents.yaml not reloaded, keeping the previous agents: %s", exc)
+                else:
+                    logger.error("agents.yaml is invalid and no agents are loaded, so every agent key is rejected "
+                                 "until it is fixed (check it with `python -m app config`): %s", exc)
                 return
             self._by_hash = {agent.key_hash: agent for agent in agents}
             self._signature = signature
+            if self.error:
+                logger.info("agents.yaml is valid again: %d agent(s) loaded", len(agents))
+            self.error = None
 
     def find_by_key(self, key: str) -> Optional[AgentConfig]:
         self._refresh()

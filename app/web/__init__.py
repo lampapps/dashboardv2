@@ -22,6 +22,7 @@ def create_app(cfg: Optional[Config] = None) -> Flask:
     # Revalidate static files on every load (cheap 304s) so an upgrade is never masked by a stale cache.
     app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
     app.extensions["jabs_agents"] = AgentRegistry()
+    app.extensions["jabs_agents"].agents()  # load now, so a broken agents.yaml is logged at startup
 
     from . import api_ingest, api_ui, pages
 

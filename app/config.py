@@ -297,6 +297,19 @@ def add_agent(name: str, grace_minutes: int = 60, notes: str = "",
     return key
 
 
+def rekey_agent(name: str, path: Optional[PathLike] = None) -> str:
+    """Give a registered agent a new API key (the old one stops working) and return it."""
+    path = Path(path or settings.AGENTS_PATH)
+    agents = load_agents(path)
+    for agent in agents:
+        if agent.name == name:
+            key = generate_key()
+            agent.key_hash = hash_key(key)
+            _write_agents(agents, path)
+            return key
+    raise ConfigError(f"agent '{name}' not found")
+
+
 def set_agent_enabled(name: str, enabled: bool, path: Optional[PathLike] = None) -> None:
     """Enable or disable a registered agent without touching its key."""
     path = Path(path or settings.AGENTS_PATH)

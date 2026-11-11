@@ -30,6 +30,8 @@ def _authenticate() -> tuple:
     registry: AgentRegistry = current_app.extensions["jabs_agents"]
     agent: Optional[AgentConfig] = registry.find_by_key(key)
     if agent is None:
+        if registry.error:
+            logger.warning("rejected an agent key while agents.yaml is invalid: %s", registry.error.splitlines()[-1].strip())
         return None, _error("Invalid API key", 403)
     if not agent.enabled:
         return None, _error(f"Agent '{agent.name}' is disabled", 403)
