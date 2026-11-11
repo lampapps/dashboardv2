@@ -93,13 +93,13 @@ def agent_data(name: str):
 
 @bp.get("/storage")
 def storage_data():
-    """Current usage and history for the Overview's storage charts."""
+    """Current usage and history of the configured drives and S3 buckets, for the Overview's charts."""
     cfg = current_app.config["JABS_CONFIG"]
     range_key, _ = storage.range_seconds(request.args.get("range"))
     now = time.time()
     with closing(db.connect()) as conn:
-        return _respond(conn, now, f"storage {range_key}", lambda: {
-            **storage.history(conn, cfg, now, range_key), "hosts": _hosts(conn)})
+        return _respond(conn, now, f"storage {range_key}",
+                        lambda: storage.history(conn, cfg, now, range_key, only_configured=True))
 
 
 @bp.get("/job")

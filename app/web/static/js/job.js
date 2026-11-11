@@ -1,7 +1,7 @@
 import {
   el, setText, setClass, setStyle, setTitle, setHidden, setData, readStore, writeStore, reconcile, getJson, poll,
   refreshRelative, cssVar, initThemeToggle, fmtClock, fmtDateTime, fmtShort, fmtDuration, fmtBytes, fmtPercent,
-  niceByteTicks,
+  niceByteTicks, singlePointRange, tickValues,
 } from "./ui.js";
 import { agentLabel, bucketOf } from "./shared.js";
 
@@ -17,6 +17,7 @@ const state = {
   tz: "UTC",
   clockOffset: 0,
   summaryEtag: null,
+  windowed: false,
   targetSignature: "",
   trendSignature: "",
   runs: {
@@ -68,7 +69,14 @@ function buildTrend() {
       animation: false, responsive: true, maintainAspectRatio: false, parsing: false, normalized: true,
       interaction: { mode: "nearest", axis: "x", intersect: false },
       scales: {
-        x: { type: "linear", ticks: { color: text, maxTicksLimit: 7, maxRotation: 0, callback: (v) => fmtShort(v, state.tz) }, grid: { color: grid } },
+        x: {
+          type: "linear", ticks: { color: text, maxTicksLimit: 7, maxRotation: 0, callback: (v) => fmtShort(v, state.tz) },
+          grid: { color: grid },
+          // A lone run gets a one-day window; label it every six hours rather than at arbitrary seconds.
+          afterBuildTicks(scale) {
+            if (state.windowed) scale.ticks = tickValues(scale.min, scale.max, 6 * 3600, state.tz).map((value) => ({ value }));
+          },
+        },
         y: { position: "left", beginAtZero: true, ticks: { color: text, callback: (v) => (v === 0 ? "0" : fmtDuration(v)) }, grid: { color: grid } },
         y1: {
           position: "right", beginAtZero: true, grid: { drawOnChartArea: false },
@@ -106,6 +114,10 @@ function renderTrend(points, singleTarget) {
   duration.pointRadius = 3;
   size.data = points.filter((p) => p.bytes_processed !== null).map((p) => ({ x: p.started_at, y: p.bytes_processed }));
   size.pointRadius = 2;
+  const range = singlePointRange(points.map((p) => p.started_at));
+  trend.options.scales.x.min = range.min;
+  trend.options.scales.x.max = range.max;
+  state.windowed = range.min !== undefined;
   trend.update("none");
   setText($("trend-note"), points.length ? `Last ${points.length} finished runs; red points failed.` : "No finished runs yet.");
 }

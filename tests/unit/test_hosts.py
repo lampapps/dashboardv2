@@ -112,14 +112,13 @@ class TestPayloads:
         rows = client.get("/api/ui/overview").get_json()["jobs"]
         assert {(r["agent"], r["host"]) for r in rows} == {(r["agent"], r["agent"]) for r in rows} and rows
 
-    def test_logs_and_storage_carry_hosts(self, client, fleet):
+    def test_logs_carry_hosts(self, client, fleet):
         key = fleet["nas-snap"]
         assert client.post("/api/v2/logs", json={"log": "snap", "lines": ["x"]}, headers={"X-API-Key": key}).status_code == 201
         assert client.post("/api/v2/storage", json={"samples": [{"name": "repo", "kind": "repo", "used_bytes": 1}]},
                            headers={"X-API-Key": key}).status_code == 201
         logs = client.get("/api/ui/logs").get_json()["logs"]
         assert [(entry["agent"], entry["host"]) for entry in logs] == [("nas-snap", "NAS1")]
-        assert client.get("/api/ui/storage?range=7d").get_json()["hosts"]["nas-snap"] == "NAS1"
 
     def test_host_changes_in_the_file_are_picked_up(self, client, fleet, home):
         path = home / "config" / "agents.yaml"
@@ -215,7 +214,6 @@ class TestReportedHostname:
         assert client.post("/api/v2/storage", json={"hostname": "NAS2", "samples": [
             {"name": "repo", "kind": "repo", "used_bytes": 1}]}, headers=headers).status_code == 201
         assert self.stored() == "NAS2"
-        assert client.get("/api/ui/storage?range=7d").get_json()["hosts"]["snap"] == "NAS2"
 
     def test_a_new_hostname_refreshes_the_ui_but_the_same_one_does_not(self, client, key):
         headers = {"X-API-Key": key}

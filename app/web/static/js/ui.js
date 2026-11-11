@@ -126,6 +126,17 @@ function tzOffset(ts, tz) {
   return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) / 1000 - Math.floor(ts);
 }
 
+// Chart.js stretches a linear axis over years when every point has the same x, so a lone value
+// (or values within `degenerateBelow` of each other) gets a window of `span` around it instead.
+export function singlePointRange(values, degenerateBelow = 60, span = 86400) {
+  if (!values.length) return { min: undefined, max: undefined };
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
+  if (hi - lo >= degenerateBelow) return { min: undefined, max: undefined };
+  const mid = (lo + hi) / 2;
+  return { min: mid - span / 2, max: mid + span / 2 };
+}
+
 // Axis tick positions every `step` seconds, aligned to local midnight/hour boundaries in `tz`.
 export function tickValues(min, max, step, tz) {
   const offset = tzOffset(max, tz);

@@ -11,7 +11,7 @@ v2 replaces the legacy dashboard (`../dashboard`, "v1"). The v1 agent endpoints 
 
 | Page | What it shows |
 | --- | --- |
-| Overview (`/`) | Metrics, Job Activity chart, jobs table (host, job, last, next and previous run; sort or group by host), storage over time (local and cloud), status badges |
+| Overview (`/`) | Metrics, Job Activity chart, jobs table (host, job, last, next and previous run; sort or group by host), storage over time (the drives and S3 buckets set in `config.yaml`), status badges |
 | Agents (`/agents`) | One card per agent, grouped by host: up/down history, uptime, read-only configuration |
 | Agent (`/agents/<name>`) | That agent's jobs, activity and history |
 | Job (`/agents/<name>/job?name=<job>`) | Run history with filters and paging, duration and size trend, a run's events |
@@ -106,7 +106,7 @@ POST /api/v2/logs      {"hostname"?: "...", "log": "name", "batch_id"?: "...",
 `POST /api/monitoring/events` also accepts an optional `hostname`.
 
 - Logs: up to 1000 lines per post, 2000 characters per line, 25 logs per agent. Each log keeps its newest 5000 lines. A repeated `batch_id` is acknowledged without storing the lines again, so retries are safe. The level is taken from the entry or detected in the text.
-- Storage: any post counts as hearing from the agent.
+- Storage: any post counts as hearing from the agent. The samples are stored, but the Overview charts only the drives and S3 buckets listed under `storage:` in `config.yaml`.
 
 Agent-supplied text is untrusted and is always rendered as text, never as HTML.
 

@@ -238,11 +238,19 @@ def _order(row) -> tuple:
     return (_KIND_ORDER[row["kind"]], row["source"], row["name"], row["series"])
 
 
-def history(conn: sqlite3.Connection, cfg: Config, now: float, range_key: Optional[str]) -> dict:
+def history(conn: sqlite3.Connection, cfg: Config, now: float, range_key: Optional[str],
+            only_configured: bool = False) -> dict:
     """Latest usage per series plus bucketed history for the requested range.
 
-    Every series shares one time grid (bucket start times) so stacked charts line up.
+    Every series shares one time grid (bucket start times) so stacked charts line up. With
+    only_configured, just the drives and S3 buckets listed under storage in config.yaml are
+    returned (not agent-reported samples, nor drives dropped from the config).
     """
+    shown = {("local", d.label) for d in cfg.storage.drives} | {("cloud", b.label) for b in cfg.storage.s3_buckets}
+
+    def wanted(row) -> bool:
+        return not only_configured or (row["source"] == "dashboard" and (row["kind"], row["name"]) in shown)
+
     key, span = range_seconds(range_key)
     step = max(MIN_STEP_S, span // TARGET_POINTS)
     start = now - span
@@ -253,6 +261,7 @@ def history(conn: sqlite3.Connection, cfg: Config, now: float, range_key: Option
         "GROUP BY source, kind, name, series) m USING (source, kind, name, series, ts)",
         (now - CURRENT_MAX_AGE_S,),
     )]
+    current = [row for row in current if wanted(row)]
     current.sort(key=_order)
 
     grouped: dict = {}
@@ -261,8 +270,9 @@ def history(conn: sqlite3.Connection, cfg: Config, now: float, range_key: Option
         "FROM storage_samples WHERE ts >= :start AND ts <= :end GROUP BY source, kind, name, series, b ORDER BY b",
         {"start": start, "step": step, "end": now},
     ):
-        grouped.setdefault((row["source"], row["kind"], row["name"], row["series"]), []).append(
-            [start + row["b"] * step, round(row["used"])])
+        if wanted(row):
+            grouped.setdefault((row["source"], row["kind"], row["name"], row["series"]), []).append(
+                [start + row["b"] * step, round(row["used"])])
     series = [{"source": s, "kind": k, "name": n, "series": sr, "points": points}
               for (s, k, n, sr), points in grouped.items()]
     series.sort(key=_order)

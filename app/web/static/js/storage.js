@@ -21,16 +21,12 @@ const state = {
 };
 let requestSeq = 0;
 
-// Agent-reported samples are labelled with the agent's host.
-const hostOf = (source) => (state.data && state.data.hosts && state.data.hosts[source]) || source;
-
 // ---------------------------------------------------------------- labels and grouping
 
 const isLocalKind = (entry) => entry.kind !== "cloud";
 
 function seriesLabel(entry) {
-  const base = entry.source === "dashboard" ? entry.name : `${hostOf(entry.source)} · ${entry.name}`;
-  return entry.series ? `${base} · ${entry.series}` : base;
+  return entry.series ? `${entry.name} · ${entry.series}` : entry.name;
 }
 
 // Cloud entries of one bucket are summed; each storage class or prefix becomes a detail item.
@@ -81,9 +77,6 @@ function updateUsageRow(row, item) {
   setText(r.when, item.rel);
 }
 
-// Agent-reported usage is named with its host so the same volume on two machines stays distinguishable.
-const usageName = (entry) => (entry.source === "dashboard" ? entry.name : `${hostOf(entry.source)} · ${entry.name}`);
-
 function localItems(current, now) {
   return current.filter(isLocalKind).map((c) => {
     const percent = c.total_bytes ? (c.used_bytes / c.total_bytes) * 100 : null;
@@ -91,14 +84,14 @@ function localItems(current, now) {
       ? `${fmtBytes(c.used_bytes)} of ${fmtBytes(c.total_bytes)} · ${Math.round(percent)}%`
       : fmtBytes(c.used_bytes);
     const detail = c.series || "";
-    return { key: `${c.source}\u0000${c.kind}\u0000${c.name}\u0000${c.series}`, name: usageName(c), text, percent, detail, ts: c.ts, rel: fmtRelative(c.ts, now) };
+    return { key: `${c.source}\u0000${c.kind}\u0000${c.name}\u0000${c.series}`, name: c.name, text, percent, detail, ts: c.ts, rel: fmtRelative(c.ts, now) };
   });
 }
 
 function cloudItems(current, now) {
   return cloudGroups(current).map((g) => ({
     key: g.key,
-    name: usageName(g),
+    name: g.name,
     text: fmtBytes(g.used),
     percent: null,
     detail: g.parts.map(([series, bytes]) => `${series} ${fmtBytes(bytes)}`).join(" · "),

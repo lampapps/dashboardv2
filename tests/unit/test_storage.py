@@ -259,6 +259,28 @@ class TestHistory:
         kinds = [s["kind"] for s in storage.history(conn, Config(), NOW, "24h")["series"]]
         assert kinds == ["local", "cloud"]
 
+    def test_only_configured_drives_and_buckets_are_shown_on_request(self, conn):
+        cfg = cfg_with(drives=[Drive(path="/", label="Root")], s3_buckets=[S3Bucket(bucket="b", label="Gallery")])
+        storage.store_samples(conn, [
+            sample(name="Root"),                                         # a configured drive
+            sample(name="Gallery", kind="cloud", series="Std", total=None),  # a configured bucket
+            sample(name="Unplugged"),                                    # a drive no longer in config.yaml
+            sample(name="vol1", source="nas1"),                          # reported by an agent
+            sample(name="Root", source="nas1"),                          # an agent's volume that shares a label
+            sample(name="repo", kind="repo", source="nas1", total=None),
+        ])
+        everything = storage.history(conn, cfg, NOW, "24h")
+        assert len(everything["current"]) == 6 and len(everything["series"]) == 6
+        shown = storage.history(conn, cfg, NOW, "24h", only_configured=True)
+        assert [(c["source"], c["kind"], c["name"]) for c in shown["current"]] == [
+            ("dashboard", "local", "Root"), ("dashboard", "cloud", "Gallery")]
+        assert [(s["source"], s["name"]) for s in shown["series"]] == [("dashboard", "Root"), ("dashboard", "Gallery")]
+
+    def test_nothing_configured_shows_nothing(self, conn):
+        storage.store_samples(conn, [sample(name="Root"), sample(name="vol", source="nas1")])
+        shown = storage.history(conn, Config(), NOW, "24h", only_configured=True)
+        assert shown["current"] == [] and shown["series"] == []
+
     def test_configured_counts_drive_empty_state(self, conn):
         cfg = cfg_with(drives=[Drive(path="/", label="R")], s3_buckets=[S3Bucket(bucket="b", label="B")])
         assert storage.history(conn, cfg, NOW, "24h")["configured"] == {"local": 1, "cloud": 1}
@@ -284,9 +306,24 @@ class TestHttp:
             {"name": "vol1", "kind": "local", "used_bytes": 500, "total_bytes": 1000},
             {"name": "repo", "kind": "repo", "used_bytes": 70, "timestamp": NOW - 30}]})
         assert (resp.status_code, resp.get_json()) == (201, {"success": True, "stored": 2})
+        conn = db.connect()
+        try:  # stored, but the Overview only charts what config.yaml lists
+            assert conn.execute("SELECT COUNT(*) FROM storage_samples WHERE source = 'nas1'").fetchone()[0] == 2
+        finally:
+            conn.close()
+        assert client.get("/api/ui/storage?range=24h").get_json()["current"] == []
+
+    def test_overview_charts_the_configured_drive_but_not_agent_samples(self, client, key):
+        conn = db.connect()
+        try:
+            storage.store_samples(conn, [sample(name="Root", ts=NOW - 60), sample(name="Gone", ts=NOW - 60)])
+        finally:
+            conn.close()
+        self.post(client, key, {"samples": [{"name": "Root", "used_bytes": 5, "total_bytes": 10}]})
         data = client.get("/api/ui/storage?range=24h").get_json()
-        assert {(c["source"], c["kind"], c["name"]) for c in data["current"]} == {
-            ("nas1", "local", "vol1"), ("nas1", "repo", "repo")}
+        assert [(c["source"], c["name"]) for c in data["current"]] == [("dashboard", "Root")]
+        assert [(s["source"], s["name"]) for s in data["series"]] == [("dashboard", "Root")]
+        assert "hosts" not in data
 
     def test_reporting_counts_as_hearing_from_the_agent(self, client, key):
         self.post(client, key, {"samples": [{"name": "v", "used_bytes": 1}]})

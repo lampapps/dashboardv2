@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import {
   fmtDateTime, fmtClock, fmtShort, fmtDayLabel, fmtDuration, fmtRelative, fmtPercent, fmtBytes, fmtTick,
-  niceByteTicks, tickValues, reconcile, splitMatches,
+  niceByteTicks, tickValues, reconcile, splitMatches, singlePointRange,
 } from "../../app/web/static/js/ui.js";
 import { bucketOf, agentHref, jobHref, agentLabel, groupByHost, groupKey } from "../../app/web/static/js/shared.js";
 import { totalsText } from "../../app/web/static/js/jobs-table.js";
@@ -189,4 +189,13 @@ test("groupByHost puts a header before each host's rows, hosts alphabetical, row
 test("group headers get keys that cannot collide with job rows", () => {
   assert.notEqual(groupKey({ host: "a" }), "a\u0000job");
   assert.notEqual(groupKey({ host: "a" }), groupKey({ host: "b" }));
+});
+
+test("singlePointRange gives a lone run a window and leaves real spans to the chart", () => {
+  const day = 86400;
+  assert.deepEqual(singlePointRange([1000]), { min: 1000 - day / 2, max: 1000 + day / 2 });
+  assert.deepEqual(singlePointRange([1000, 1030]), { min: 1015 - day / 2, max: 1015 + day / 2 });
+  assert.deepEqual(singlePointRange([1000, 1180]), { min: undefined, max: undefined });
+  assert.deepEqual(singlePointRange([]), { min: undefined, max: undefined });
+  assert.deepEqual(singlePointRange([5], 60, 600), { min: -295, max: 305 });
 });
