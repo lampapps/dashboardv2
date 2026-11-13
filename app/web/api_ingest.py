@@ -10,7 +10,7 @@ from typing import Optional
 from flask import Blueprint, current_app, jsonify, request
 from pydantic import ValidationError
 
-from .. import db, ingest, logs, settings, storage
+from .. import db, ingest, settings, storage
 from ..agents import AgentRegistry
 from ..config import AgentConfig
 
@@ -109,31 +109,6 @@ def submit_storage():
         logger.exception("failed to record storage from agent %s", agent.name)
         return _error("Failed to record storage samples", 500)
     return jsonify({"success": True, "stored": stored}), 201
-
-
-@bp.post("/api/v2/logs")
-def submit_logs():
-    """Agent log tails; an optional batch_id makes a retried post harmless. Opt-in per agent."""
-    agent, error = _authenticate()
-    if error:
-        return error
-    payload, error = _parse(logs.LogBatch)
-    if error:
-        return error
-    cfg = current_app.config["JABS_CONFIG"]
-    now = time.time()
-    try:
-        with closing(db.connect()) as conn:
-            with db.transaction(conn):
-                if ingest.touch_agent(conn, agent.name, now, payload.hostname):
-                    db.bump_rev(conn)
-            result = logs.store_batch(conn, cfg, agent.name, payload, now)
-    except logs.LogError as exc:
-        return _error(str(exc), 400)
-    except sqlite3.Error:
-        logger.exception("failed to record logs from agent %s", agent.name)
-        return _error("Failed to record log lines", 500)
-    return jsonify(result), (200 if result.get("duplicate") else 201)
 
 
 @bp.get("/api/heartbeat")

@@ -1,7 +1,6 @@
 """Read-only JSON endpoints the web UI polls."""
 
 import hashlib
-import re
 import time
 from contextlib import closing
 from typing import Callable, Optional
@@ -9,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from flask import Blueprint, Response, current_app, jsonify, request
 
-from .. import agents_report, db, jobs, logs, overview, runs, storage
+from .. import agents_report, db, jobs, overview, runs, storage
 from ..agents import resolve_hosts
 
 bp = Blueprint("ui", __name__, url_prefix="/api/ui")
@@ -21,12 +20,12 @@ def _hosts(conn) -> dict:
     return resolve_hosts(conn, current_app.extensions["jabs_agents"].agents())
 
 
-def _respond(conn, now: float, key: str, build: Callable[[], dict], rev_key: str = "rev") -> Response:
+def _respond(conn, now: float, key: str, build: Callable[[], dict]) -> Response:
     """JSON from `build()`, or 304 while the data revision and the minute are unchanged.
 
     The minute keeps relative times and agent up/down fresh without any write.
     """
-    etag = '"%s-%d-%s"' % (db.get_meta(conn, rev_key, "0"), now // 60, hashlib.sha1(key.encode()).hexdigest()[:10])
+    etag = '"%s-%d-%s"' % (db.get_meta(conn, "rev", "0"), now // 60, hashlib.sha1(key.encode()).hexdigest()[:10])
     response = Response(status=304) if request.headers.get("If-None-Match") == etag else jsonify(build())
     response.headers["ETag"] = etag
     response.headers["Cache-Control"] = "no-cache"
@@ -144,51 +143,3 @@ def run_data(run_id: int):
             return _error("Unknown run", 404)
         detail["run"]["host"] = _hosts(conn).get(detail["run"]["agent"], detail["run"]["agent"])
         return _respond(conn, now, f"run {run_id}", lambda: detail)
-
-
-@bp.get("/logs")
-def logs_list():
-    """Every stored agent log with its size, time span and per-level counts."""
-    now = time.time()
-    cfg = current_app.config["JABS_CONFIG"]
-    with closing(db.connect()) as conn:
-        def build() -> dict:
-            hosts = _hosts(conn)
-            return {"logs": [{**entry, "host": hosts.get(entry["agent"], entry["agent"])} for entry in logs.list_logs(conn)],
-                    "now": now, "timezone": cfg.timezone}
-        return _respond(conn, now, "logs", build, rev_key="log_rev")
-
-
-def _optional_int(name: str) -> Optional[int]:
-    return request.args.get(name, type=int)
-
-
-@bp.get("/logs/lines")
-def logs_lines():
-    """Lines of one log, oldest first: the newest page, the lines after a cursor, or the page before one."""
-    agent, log = _text_arg("agent"), _text_arg("log")
-    if not agent or not log:
-        return _error("agent and log are required", 400)
-    levels = [lv for lv in (request.args.get("levels") or "").split(",") if lv]
-    query = _text_arg("q") or None
-    with closing(db.connect()) as conn:
-        page = logs.read_lines(
-            conn, agent, log, limit=request.args.get("limit", logs.DEFAULT_PAGE, type=int),
-            after=_optional_int("after"), before=_optional_int("before"), levels=levels, query=query)
-    response = jsonify(page)
-    response.headers["Cache-Control"] = "no-store"
-    return response
-
-
-@bp.get("/logs/download")
-def logs_download():
-    """The whole stored log as a plain-text attachment."""
-    agent, log = _text_arg("agent"), _text_arg("log")
-    if not agent or not log:
-        return _error("agent and log are required", 400)
-    with closing(db.connect()) as conn:
-        text = logs.export_text(conn, agent, log)
-    filename = re.sub(r"[^A-Za-z0-9._-]", "_", f"{agent}-{log}")
-    return Response(text, mimetype="text/plain", headers={
-        "Content-Disposition": f'attachment; filename="{filename}.log"',
-        "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})

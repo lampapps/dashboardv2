@@ -1,7 +1,7 @@
 import pytest
 
 from app import __main__ as cli
-from app import config, db, notify
+from app import config, db, ingest, notify
 from app.agents import resolve_hosts
 from app.config import AgentConfig, Config
 from app.web import create_app
@@ -112,14 +112,6 @@ class TestPayloads:
         rows = client.get("/api/ui/overview").get_json()["jobs"]
         assert {(r["agent"], r["host"]) for r in rows} == {(r["agent"], r["agent"]) for r in rows} and rows
 
-    def test_logs_carry_hosts(self, client, fleet):
-        key = fleet["nas-snap"]
-        assert client.post("/api/v2/logs", json={"log": "snap", "lines": ["x"]}, headers={"X-API-Key": key}).status_code == 201
-        assert client.post("/api/v2/storage", json={"samples": [{"name": "repo", "kind": "repo", "used_bytes": 1}]},
-                           headers={"X-API-Key": key}).status_code == 201
-        logs = client.get("/api/ui/logs").get_json()["logs"]
-        assert [(entry["agent"], entry["host"]) for entry in logs] == [("nas-snap", "NAS1")]
-
     def test_host_changes_in_the_file_are_picked_up(self, client, fleet, home):
         path = home / "config" / "agents.yaml"
         path.write_text(path.read_text().replace("host: NAS1", "host: NAS2"))
@@ -206,34 +198,20 @@ class TestReportedHostname:
         self.post_event(client, key, hostname="  P3Tiny  ")
         assert self.stored() == "P3Tiny"
 
-    def test_logs_and_storage_report_the_hostname_too(self, client, key):
+    def test_storage_reports_the_hostname_too(self, client, key):
         headers = {"X-API-Key": key}
-        assert client.post("/api/v2/logs", json={"log": "tick", "hostname": "NAS1", "lines": ["x"]},
-                           headers=headers).status_code == 201
-        assert self.stored() == "NAS1"
         assert client.post("/api/v2/storage", json={"hostname": "NAS2", "samples": [
             {"name": "repo", "kind": "repo", "used_bytes": 1}]}, headers=headers).status_code == 201
         assert self.stored() == "NAS2"
 
-    def test_a_new_hostname_refreshes_the_ui_but_the_same_one_does_not(self, client, key):
-        headers = {"X-API-Key": key}
-
-        def rev():
-            conn = db.connect()
-            try:
-                return db.get_meta(conn, "rev")
-            finally:
-                conn.close()
-
-        def post_logs(host):
-            assert client.post("/api/v2/logs", json={"log": "t", "hostname": host, "lines": ["x"]},
-                               headers=headers).status_code == 201
-        post_logs("A")
-        before = rev()
-        post_logs("A")
-        assert rev() == before
-        post_logs("B")
-        assert rev() != before
+    def test_a_new_hostname_is_a_change_but_the_same_one_is_not(self, client, key):
+        conn = db.connect()
+        try:
+            ingest.touch_agent(conn, "snap", 1000.0, "A")
+            assert ingest.touch_agent(conn, "snap", 1001.0, "A") is False
+            assert ingest.touch_agent(conn, "snap", 1002.0, "B") is True
+        finally:
+            conn.close()
 
     def test_agent_cards_say_where_the_host_comes_from(self, client, key):
         def card():

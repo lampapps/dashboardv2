@@ -1,6 +1,6 @@
 # JABS Dashboard v2
 
-Read-only web dashboard and ingest API for the JABS agents on a home lab LAN. Agents post job events, heartbeats, storage samples and log tails; the dashboard shows them, emails a digest, and alerts when an agent goes quiet.
+Read-only web dashboard and ingest API for the JABS agents on a home lab LAN. Agents post job events, heartbeats, storage samples; the dashboard shows them, emails a digest, and alerts when an agent goes quiet.
 
 v2 replaces the legacy dashboard (`../dashboard`, "v1"). The v1 agent endpoints behave the same, so existing agents work unchanged.
 
@@ -15,7 +15,6 @@ v2 replaces the legacy dashboard (`../dashboard`, "v1"). The v1 agent endpoints 
 | Agents (`/agents`) | One card per agent, grouped by host: up/down history, uptime, read-only configuration |
 | Agent (`/agents/<name>`) | That agent's jobs, activity and history |
 | Job (`/agents/<name>/job?name=<job>`) | Run history with filters and paging, duration and size trend, a run's events |
-| Logs (`/logs`) | Log tails shipped by agents: follow, level filters, search, download |
 
 Light and dark themes follow the toggle in the top bar. `/healthz` returns `{"status": "ok", ...}` for monitors.
 
@@ -59,7 +58,7 @@ Logs go to the journal; there are no log files.
 - `badges`: status images across the top, for example Uptime Kuma badge URLs.
 - `storage`: local drives to sample and S3 buckets (CloudWatch daily sizes, or a bucket listing).
 - `email`: SMTP server, recipients, digest schedule, offline alerts.
-- `retention`: how long runs, rollups, status history, storage samples and log lines are kept.
+- `retention`: how long runs, rollups, status history, storage samples are kept.
 
 `config/agents.yaml` is the agent registry. Keys are stored only as SHA-256 hashes. Edits take effect without a restart. An agent is identified by its key, so renaming an entry in the file keeps its key working, but its history (stored under the name) starts again under the new name. Names use letters, digits, `.`, `_` and `-`. If the file is invalid the dashboard logs why, keeps the last good copy while running, and rejects every key if it starts with none; `python -m app config` shows the error.
 
@@ -99,20 +98,17 @@ New endpoints under `/api/v2/`, which an agent opts into:
 ```text
 POST /api/v2/storage   {"hostname"?: "...", "samples": [{"name", "kind": "local|cloud|repo",
                          "used_bytes", "total_bytes"?, "series"?, "timestamp"?}]}
-POST /api/v2/logs      {"hostname"?: "...", "log": "name", "batch_id"?: "...",
-                         "lines": ["text" | {"message", "level"?, "ts"?}]}
 ```
 
 `POST /api/monitoring/events` also accepts an optional `hostname`.
 
-- Logs: up to 1000 lines per post, 2000 characters per line, 25 logs per agent. Each log keeps its newest 5000 lines. A repeated `batch_id` is acknowledged without storing the lines again, so retries are safe. The level is taken from the entry or detected in the text.
 - Storage: any post counts as hearing from the agent. The samples are stored, but the Overview charts only the drives and S3 buckets listed under `storage:` in `config.yaml`.
 
 Agent-supplied text is untrusted and is always rendered as text, never as HTML.
 
 ### Hosts
 
-Several agents can run on one machine, and the same agent type can run on several machines, so a job name alone is not unique. An agent can report the name of its machine in a `hostname` field on `/api/monitoring/events`, `/api/v2/logs` and `/api/v2/storage`; that name is always used when present. For agents that do not report one, set `host` in `agents.yaml` (`agent add NAME --host HOST`). An unusable reported name (not a plausible host name) is ignored rather than rejected. Every page that shows a job also shows its host (and the agent name when that differs), and the jobs table and the Agents page can be sorted or grouped by host. An agent with neither is shown under its agent name.
+Several agents can run on one machine, and the same agent type can run on several machines, so a job name alone is not unique. An agent can report the name of its machine in a `hostname` field on `/api/monitoring/events` and `/api/v2/storage`; that name is always used when present. For agents that do not report one, set `host` in `agents.yaml` (`agent add NAME --host HOST`). An unusable reported name (not a plausible host name) is ignored rather than rejected. Every page that shows a job also shows its host (and the agent name when that differs), and the jobs table and the Agents page can be sorted or grouped by host. An agent with neither is shown under its agent name.
 
 ### How agents are judged up or down
 
@@ -127,7 +123,7 @@ Set `email.smtp_server` and `email.to_addrs`, put the login in `.env`, then run 
 
 ## What the periodic tick does
 
-Every 5 minutes: daily rollup of run counts, agent status changes, offline alerts, digest, local drive sampling, deleting runs and events older than `retention.runs_days` (their per-day counts stay in the rollup for `rollup_days`), purging old status, storage and log data, and S3 sampling when due. A failing task is logged and does not stop the others.
+Every 5 minutes: daily rollup of run counts, agent status changes, offline alerts, digest, local drive sampling, deleting runs and events older than `retention.runs_days` (their per-day counts stay in the rollup for `rollup_days`), purging old status and storage data, and S3 sampling when due. A failing task is logged and does not stop the others.
 
 ## Development
 

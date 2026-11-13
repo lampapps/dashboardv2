@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import {
   fmtDateTime, fmtClock, fmtShort, fmtDayLabel, fmtDuration, fmtRelative, fmtPercent, fmtBytes, fmtTick,
-  niceByteTicks, tickValues, reconcile, splitMatches, singlePointRange,
+  niceByteTicks, tickValues, reconcile, singlePointRange,
 } from "../../app/web/static/js/ui.js";
 import { bucketOf, agentHref, jobHref, agentLabel, groupByHost, groupKey } from "../../app/web/static/js/shared.js";
 import { totalsText } from "../../app/web/static/js/jobs-table.js";
@@ -161,15 +161,6 @@ test("reconcile creates, reuses, reorders and removes by key", () => {
   assert.deepEqual(parent.nodes.map((n) => n.dataset.key), ["c", "a", "d"]);
   assert.deepEqual(created, ["a", "b", "c", "d"]);
   assert.equal(parent.nodes[1], first);
-});
-
-test("splitMatches marks case-insensitive matches and keeps the original text", () => {
-  assert.deepEqual(splitMatches("Error: disk ERROR", "error"), [
-    { text: "Error", match: true }, { text: ": disk ", match: false }, { text: "ERROR", match: true }]);
-  assert.deepEqual(splitMatches("nothing here", "zzz"), [{ text: "nothing here", match: false }]);
-  assert.deepEqual(splitMatches("abc", ""), [{ text: "abc", match: false }]);
-  assert.deepEqual(splitMatches("", "x"), [{ text: "", match: false }]);
-  assert.deepEqual(splitMatches("aaa", "aa"), [{ text: "aa", match: true }, { text: "a", match: false }]);
 });
 
 test("agentLabel shows host and agent, or one name when they match", () => {

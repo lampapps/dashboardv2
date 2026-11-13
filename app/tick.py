@@ -6,7 +6,7 @@ import time
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from . import activity, db, logs, notify, status, storage
+from . import activity, db, notify, status, storage
 from .config import Config
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,6 @@ TASKS = [
     ("runs purge", _purge_runs),
     ("storage purge", storage.purge_old),
     ("status purge", status.purge_old),
-    ("log purge", logs.purge_old),
     ("s3 usage", storage.collect_s3),
 ]
 

@@ -117,26 +117,6 @@ MIGRATIONS: list[list[str]] = [
         "ALTER TABLE agent_state ADD COLUMN status_since REAL",
     ],
     [
-        # Agent log tails. id is the cursor the viewer follows; batches make agent retries idempotent.
-        """CREATE TABLE log_lines (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            agent TEXT NOT NULL,
-            log TEXT NOT NULL,
-            ts REAL NOT NULL,
-            level TEXT,
-            text TEXT NOT NULL
-        )""",
-        "CREATE INDEX idx_log_lines_stream ON log_lines(agent, log, id)",
-        "CREATE INDEX idx_log_lines_ts ON log_lines(ts)",
-        """CREATE TABLE log_batches (
-            agent TEXT NOT NULL,
-            log TEXT NOT NULL,
-            batch_id TEXT NOT NULL,
-            ts REAL NOT NULL,
-            PRIMARY KEY (agent, log, batch_id)
-        )""",
-    ],
-    [
         # Offline-alert progress for the agent's current outage; reset once it is back up.
         "ALTER TABLE agent_state ADD COLUMN alert_count INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE agent_state ADD COLUMN last_alert_at REAL",
