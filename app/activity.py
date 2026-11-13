@@ -7,12 +7,12 @@ from zoneinfo import ZoneInfo
 
 from . import db
 
-BUCKETS = ("success", "failed", "stopped", "running", "other")
+BUCKETS = ("success", "purged", "failed", "stopped", "running", "other")
 
 _BUCKET_OF = {
     "success": "success",
     "completed": "success",
-    "purged": "success",  # purged means the artifact was rotated away after a good run
+    "purged": "purged",
     "failed": "failed",
     "error": "failed",
     "stopped": "stopped",
@@ -21,8 +21,12 @@ _BUCKET_OF = {
 
 # Statuses belonging to each display bucket ('other' is everything not listed here).
 BUCKET_STATUSES = {
-    b: tuple(s for s, member in _BUCKET_OF.items() if member == b) for b in ("success", "failed", "stopped", "running")
+    b: tuple(s for s, member in _BUCKET_OF.items() if member == b)
+    for b in ("success", "purged", "failed", "stopped", "running")
 }
+
+# A purged run succeeded before its artifact was rotated away, so metrics still count it as a success.
+SUCCESSFUL_STATUSES = BUCKET_STATUSES["success"] + BUCKET_STATUSES["purged"]
 
 
 def bucket(status: str) -> str:

@@ -14,16 +14,8 @@ MAX_EVENTS = 500
 
 _KNOWN_STATUSES = tuple(s for statuses in activity.BUCKET_STATUSES.values() for s in statuses)
 
-
-# Statuses the Runs filter offers on their own, although they belong to a display bucket
-# (a purged run still counts as a success everywhere else).
-EXACT_STATUS_FILTERS = ("purged",)
-
-
 def _status_filter(bucket: Optional[str]) -> tuple:
-    """SQL fragment and params restricting runs to one display bucket, or to one exact status."""
-    if bucket in EXACT_STATUS_FILTERS:
-        return "status = ?", [bucket]
+    """SQL fragment and params restricting runs to one display bucket."""
     if bucket in activity.BUCKET_STATUSES:
         statuses = activity.BUCKET_STATUSES[bucket]
         return f"status IN ({', '.join('?' * len(statuses))})", list(statuses)
@@ -78,7 +70,7 @@ def job_summary(conn: sqlite3.Connection, cfg: Config, now: float, agent: str, j
                    if r["agent"] == agent and r["job_name"] == job_name), None)
     if rollup is None:
         return None
-    success = activity.BUCKET_STATUSES["success"]
+    success = activity.SUCCESSFUL_STATUSES
     stats = conn.execute(
         f"SELECT AVG(CASE WHEN status IN ({', '.join('?' * len(success))}) THEN runtime_seconds END) AS avg_runtime, "
         "SUM(bytes_processed) AS bytes FROM runs WHERE agent = ? AND job_name = ?",

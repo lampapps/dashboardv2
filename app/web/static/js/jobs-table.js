@@ -6,7 +6,7 @@ import {
 import { bucketOf, agentHref, jobHref, groupByHost, groupKey } from "./shared.js";
 
 // Lower rank sorts first when ordering by status, so problems rise to the top.
-const ATTENTION_RANK = { failed: 0, running: 1, stopped: 2, other: 3, success: 4 };
+const ATTENTION_RANK = { failed: 0, running: 1, stopped: 2, other: 3, purged: 4, success: 5 };
 
 const SORTERS = {
   host: (a, b) => a.host.localeCompare(b.host) || a.agent.localeCompare(b.agent) || a.job_name.localeCompare(b.job_name),
@@ -18,10 +18,11 @@ const SORTERS = {
 };
 
 export function totalsText(counts) {
-  const sums = { success: 0, failed: 0, stopped: 0, running: 0, other: 0 };
+  const sums = { success: 0, purged: 0, failed: 0, stopped: 0, running: 0, other: 0 };
   Object.keys(counts).forEach((status) => { sums[bucketOf(status)] += counts[status]; });
   const text = [];
   if (sums.success) text.push(`${sums.success} ok`);
+  if (sums.purged) text.push(`${sums.purged} purged`);
   if (sums.failed) text.push(`${sums.failed} failed`);
   if (sums.stopped) text.push(`${sums.stopped} stopped`);
   if (sums.running) text.push(`${sums.running} running`);
@@ -152,7 +153,7 @@ export function createJobsTable({ table, body, empty, count, getTz, showHost = t
     const needle = state.filter.trim().toLowerCase();
     const rows = state.jobs.filter((j) => {
       if (needle && !(j.job_name + " " + j.host + " " + j.agent).toLowerCase().includes(needle)) return false;
-      if (state.problemsOnly && ["success", "running"].includes(bucketOf(j.last_status))) return false;
+      if (state.problemsOnly && ["success", "purged", "running"].includes(bucketOf(j.last_status))) return false;
       return true;
     });
     const compare = SORTERS[state.sort.key] || SORTERS.last;

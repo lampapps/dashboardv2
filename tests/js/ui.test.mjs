@@ -88,7 +88,7 @@ test("explicit digits override the automatic precision", () => {
 
 test("run statuses fold into display buckets like the server does", () => {
   assert.equal(bucketOf("completed"), "success");
-  assert.equal(bucketOf("purged"), "success");
+  assert.equal(bucketOf("purged"), "purged");
   assert.equal(bucketOf("error"), "failed");
   assert.equal(bucketOf("running"), "running");
   assert.equal(bucketOf("skipped"), "other");
@@ -104,6 +104,7 @@ test("links escape agent and job names", () => {
 test("status totals text groups statuses and omits zeros", () => {
   assert.equal(totalsText({ success: 5, completed: 1, failed: 1, error: 1 }), "6 ok · 2 failed");
   assert.equal(totalsText({ running: 1 }), "1 running");
+  assert.equal(totalsText({ success: 2, purged: 3 }), "2 ok · 3 purged");
   assert.equal(totalsText({}), "–");
 });
 

@@ -129,10 +129,11 @@ function setCard(id, value, note) {
 
 function renderSummary(data) {
   const rollup = data.rollup;
-  const counts = { success: 0, failed: 0, stopped: 0, running: 0, other: 0 };
+  const counts = { success: 0, purged: 0, failed: 0, stopped: 0, running: 0, other: 0 };
   Object.keys(rollup.status_counts).forEach((s) => { counts[bucketOf(s)] += rollup.status_counts[s]; });
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
-  const judged = counts.success + counts.failed;
+  const succeeded = counts.success + counts.purged;
+  const judged = succeeded + counts.failed;
 
   setText($("j-pill"), rollup.last_status);
   setClass($("j-pill"), "pill pill-" + bucketOf(rollup.last_status));
@@ -144,7 +145,7 @@ function renderSummary(data) {
   document.title = `${JOB_LABEL} - ${agentLabel(data.host, AGENT)} - JABS`;
 
   setCard("runs", String(total), `${counts.failed} failed`);
-  setCard("rate", judged ? fmtPercent(counts.success / judged) : "–", null);
+  setCard("rate", judged ? fmtPercent(succeeded / judged) : "–", null);
   setCard("avg", data.avg_runtime_seconds === null ? "–" : fmtDuration(data.avg_runtime_seconds), null);
   setCard("bytes", fmtBytes(data.bytes_processed || 0), null);
   setCard("last", fmtShort(rollup.last_started_at, state.tz), null);

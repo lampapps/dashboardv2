@@ -36,7 +36,7 @@ def add_run(conn, agent="a", job="J", status="success", started=NOW - 60, comple
 
 class TestBuckets:
     @pytest.mark.parametrize("status,expected", [
-        ("success", "success"), ("completed", "success"), ("purged", "success"),
+        ("success", "success"), ("completed", "success"), ("purged", "purged"),
         ("failed", "failed"), ("error", "failed"), ("stopped", "stopped"),
         ("running", "running"), ("skipped", "other"), ("weird", "other"),
     ])
@@ -154,6 +154,14 @@ class TestOverviewPayload:
         assert (stats["jobs_total"], stats["jobs_failing"]) == (4, 1)
         assert stats["success_rate_7d"] == round(2 / 3, 4)
         assert {a["name"]: a["status"] for a in data["agents"]} == {"up1": "up", "down1": "down", "off": "disabled"}
+
+    def test_purged_runs_still_count_as_successes(self, conn):
+        add_run(conn, job="a", completed=NOW - 100)
+        add_run(conn, job="b", status="purged", completed=NOW - 100)
+        add_run(conn, job="c", status="failed", completed=NOW - 100)
+        stats = overview.build(conn, self.cfg(), [], NOW, 7)["stats"]
+        assert (stats["success_24h"], stats["success_rate_7d"]) == (2, round(2 / 3, 4))
+        assert overview.build(conn, self.cfg(), [], NOW, 7)["activity"]["series"]["purged"][-1] == 1
 
     def test_rate_is_none_without_finished_runs(self, conn):
         data = overview.build(conn, self.cfg(), [], NOW, 7)

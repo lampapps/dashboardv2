@@ -74,7 +74,7 @@ def build(conn: sqlite3.Connection, cfg: Config, configured: list, now: float, r
 
 
 def _totals(conn: sqlite3.Connection, agent: str, since: float) -> dict:
-    success = activity.BUCKET_STATUSES["success"]
+    success = activity.SUCCESSFUL_STATUSES
     row = conn.execute(
         "SELECT COUNT(*) AS runs, SUM(files_count) AS files, SUM(bytes_processed) AS bytes, "
         f"AVG(CASE WHEN status IN ({', '.join('?' * len(success))}) THEN runtime_seconds END) AS avg_runtime "

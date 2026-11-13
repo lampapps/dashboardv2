@@ -51,7 +51,8 @@ def build(conn: sqlite3.Connection, cfg: Config, configured: list, now: float, d
 
     day = _finished_counts(conn, now - DAY_S)
     week = _finished_counts(conn, now - 7 * DAY_S)
-    judged = week["success"] + week["failed"]
+    week_ok = week["success"] + week["purged"]
+    judged = week_ok + week["failed"]
     running = conn.execute("SELECT COUNT(*) FROM runs WHERE status = 'running'").fetchone()[0]
 
     return {
@@ -61,11 +62,11 @@ def build(conn: sqlite3.Connection, cfg: Config, configured: list, now: float, d
             "agents_total": sum(1 for a in agents if a["status"] != "disabled"),
             "agents_up": sum(1 for a in agents if a["status"] == "up"),
             "running": running,
-            "success_24h": day["success"],
+            "success_24h": day["success"] + day["purged"],
             "failed_24h": day["failed"],
             "jobs_total": len(rows),
             "jobs_failing": sum(1 for r in rows if activity.bucket(r["last_status"]) == "failed"),
-            "success_rate_7d": round(week["success"] / judged, 4) if judged else None,
+            "success_rate_7d": round(week_ok / judged, 4) if judged else None,
         },
         "agents": agents,
         "activity": activity.activity(conn, tz, now, days, cfg.retention.runs_days),

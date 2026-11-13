@@ -1,9 +1,9 @@
 // Page-level constants and helpers shared by the pages (status vocabulary, links, the status timeline).
 import { setClass, setStyle, setTitle, el, fmtDateTime, fmtDuration } from "./ui.js";
 
-// Run statuses as agents report them, folded into the five display buckets (mirrors the server).
+// Run statuses as agents report them, folded into the six display buckets (mirrors the server).
 export const BUCKET_OF = {
-  success: "success", completed: "success", purged: "success",
+  success: "success", completed: "success", purged: "purged",
   failed: "failed", error: "failed", stopped: "stopped", running: "running",
 };
 export const bucketOf = (status) => BUCKET_OF[status] || "other";

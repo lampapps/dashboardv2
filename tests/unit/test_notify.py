@@ -296,6 +296,7 @@ class TestDigestData:
     def test_counts_problems_and_outages(self, conn):
         add_run(conn, status="success")
         add_run(conn, status="completed", agent_name="nas2")
+        add_run(conn, status="purged", agent_name="nas2")
         add_run(conn, status="failed", job="etl", target="vol1", error="disk\nfull  badly", completed=NOW - 100)
         add_run(conn, status="stopped", completed=NOW - 300)
         add_run(conn, status="running", completed=None)
@@ -304,10 +305,10 @@ class TestDigestData:
         log_status(conn, "nas1", NOW - 3000, "down")
         log_status(conn, "nas1", NOW - 1000, "up")
         data = notify.digest_data(conn, make_config(), [agent()], NOW - DAY, NOW)
-        assert data["totals"] == {"success": 2, "failed": 1, "stopped": 1, "other": 0}
+        assert data["totals"] == {"success": 3, "failed": 1, "stopped": 1, "other": 0}
         assert data["per_agent"] == [
             {"agent": "nas1", "host": "nas1", "label": "nas1", "success": 1, "failed": 1, "stopped": 1, "other": 0},
-            {"agent": "nas2", "host": "nas2", "label": "nas2", "success": 1, "failed": 0, "stopped": 0, "other": 0}]
+            {"agent": "nas2", "host": "nas2", "label": "nas2", "success": 2, "failed": 0, "stopped": 0, "other": 0}]
         assert [(p["status"], p["job"], p["target"], p["error"]) for p in data["problems"]] == [
             ("failed", "etl", "vol1", "disk full badly"), ("stopped", "job", "", "")]
         (outage,) = data["outages"]

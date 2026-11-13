@@ -59,7 +59,7 @@ class TestListRuns:
         assert runs.list_runs(conn, "a", "J")["total"] == 1
 
     @pytest.mark.parametrize("bucket,expected", [
-        ("success", {"success", "completed", "purged"}), ("failed", {"failed", "error"}),
+        ("success", {"success", "completed"}), ("failed", {"failed", "error"}),
         ("stopped", {"stopped"}), ("running", {"running"}), ("other", {"skipped"}), ("purged", {"purged"}),
     ])
     def test_status_filter_uses_display_buckets(self, conn, bucket, expected):
@@ -96,7 +96,7 @@ class TestTrendAndSummary:
 
     def test_summary_has_targets_schedule_and_success_only_average(self, conn):
         add_run(conn, runtime=10, target="X", label="Ex")
-        add_run(conn, runtime=30, target="X", label="Ex")
+        add_run(conn, runtime=30, target="X", label="Ex", status="purged")
         add_run(conn, status="failed", runtime=1000, target="Y")
         conn.execute("INSERT INTO job_schedules VALUES ('a', 'J', '30 2 * * *', ?)", (NOW,))
         summary = runs.job_summary(conn, Config(), NOW, "a", "J")
@@ -104,7 +104,7 @@ class TestTrendAndSummary:
         assert summary["bytes_processed"] == 3000
         assert summary["schedule"] == "30 2 * * *"
         assert [(t["target_id"], t["runs"]) for t in summary["targets"]] == [("X", 2), ("Y", 1)]
-        assert summary["rollup"]["status_counts"] == {"success": 2, "failed": 1}
+        assert summary["rollup"]["status_counts"] == {"success": 1, "purged": 1, "failed": 1}
 
     def test_unknown_job_has_no_summary(self, conn):
         assert runs.job_summary(conn, Config(), NOW, "a", "missing") is None
@@ -225,4 +225,4 @@ class TestHttp:
 
 
 def test_every_status_bucket_has_a_filter():
-    assert set(activity.BUCKET_STATUSES) == {"success", "failed", "stopped", "running"}
+    assert set(activity.BUCKET_STATUSES) == {"success", "purged", "failed", "stopped", "running"}

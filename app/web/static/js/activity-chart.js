@@ -1,8 +1,8 @@
 // Stacked bar chart of runs per day by outcome, shared by the Overview and the agent page.
 import { cssVar, fmtDayLabel, setText } from "./ui.js";
 
-const BUCKETS = ["success", "failed", "stopped", "running", "other"];
-const BUCKET_LABEL = { success: "Success", failed: "Failed", stopped: "Stopped", running: "Running", other: "Other" };
+const BUCKETS = ["success", "purged", "failed", "stopped", "running", "other"];
+const BUCKET_LABEL = { success: "Success", purged: "Purged", failed: "Failed", stopped: "Stopped", running: "Running", other: "Other" };
 
 export function createActivityChart(canvas, noteEl) {
   let chart = null;

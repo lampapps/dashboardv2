@@ -62,7 +62,7 @@ function render(data) {
 
   const counts = data.counts;
   setCard("runs", String(counts.total), `last ${data.activity.days.length} days`, "");
-  setCard("success", String(counts.success), null, "");
+  setCard("success", String(counts.success), counts.purged ? `${counts.purged} purged` : "", "");
   setCard("failed", String(counts.failed), null, counts.failed ? "crit" : "");
   setCard("running", String(counts.runs_now), null, "");
   setCard("bytes", fmtBytes(data.totals.bytes), `last ${data.totals.days} days`, "");

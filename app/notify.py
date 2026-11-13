@@ -117,6 +117,8 @@ def digest_data(conn: sqlite3.Connection, cfg: Config, agents: list, since: floa
         bucket = activity.bucket(row["status"])
         if bucket == "running":
             continue
+        if bucket == "purged":
+            bucket = "success"
         totals[bucket] += 1
         host = hosts.get(row["agent"], row["agent"])
         per_agent.setdefault(row["agent"], {
