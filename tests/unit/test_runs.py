@@ -60,7 +60,7 @@ class TestListRuns:
 
     @pytest.mark.parametrize("bucket,expected", [
         ("success", {"success", "completed", "purged"}), ("failed", {"failed", "error"}),
-        ("stopped", {"stopped"}), ("running", {"running"}), ("other", {"skipped"}),
+        ("stopped", {"stopped"}), ("running", {"running"}), ("other", {"skipped"}), ("purged", {"purged"}),
     ])
     def test_status_filter_uses_display_buckets(self, conn, bucket, expected):
         for status in ("success", "completed", "purged", "failed", "error", "stopped", "running", "skipped"):

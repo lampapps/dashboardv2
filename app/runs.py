@@ -15,8 +15,15 @@ MAX_EVENTS = 500
 _KNOWN_STATUSES = tuple(s for statuses in activity.BUCKET_STATUSES.values() for s in statuses)
 
 
+# Statuses the Runs filter offers on their own, although they belong to a display bucket
+# (a purged run still counts as a success everywhere else).
+EXACT_STATUS_FILTERS = ("purged",)
+
+
 def _status_filter(bucket: Optional[str]) -> tuple:
-    """SQL fragment and params restricting runs to one display bucket."""
+    """SQL fragment and params restricting runs to one display bucket, or to one exact status."""
+    if bucket in EXACT_STATUS_FILTERS:
+        return "status = ?", [bucket]
     if bucket in activity.BUCKET_STATUSES:
         statuses = activity.BUCKET_STATUSES[bucket]
         return f"status IN ({', '.join('?' * len(statuses))})", list(statuses)
