@@ -7,6 +7,47 @@ v2 replaces the legacy dashboard (`../dashboard`, "v1"). The v1 agent endpoints 
 - The UI has no login and cannot change anything. The only writes are agent posts, authenticated with an API key.
 - All configuration is YAML plus `.env` for secrets. There are no settings pages.
 
+## Quick start
+
+Needs Linux with systemd, Python 3.11 or newer and `python3-venv`. Do these steps as the user that will run the service, in the install directory.
+
+1. **Install.**
+
+   ```bash
+   ./setup.sh
+   ```
+
+   It creates the virtual environment, installs the dependencies, copies the example `config/config.yaml`, `config/agents.yaml` and `.env` (never overwriting existing files), and creates the empty database.
+
+2. **Open the admin console.** The next steps use it; the [Admin console](#admin-console) section lists every tab.
+
+   ```bash
+   .venv/bin/python -m app admin
+   ```
+
+3. **Configure** (tab `2` Files). Select `config.yaml` and press `e` to edit it in your system editor: set the timezone, the drives you want charted and, if you want mail, the SMTP server and recipients. Do the same for `.env` (SMTP login, AWS keys). The files document themselves, so leave what you do not need. The console checks each file when you close the editor and offers to revert a mistake.
+
+4. **Test email** (tab `4` Diagnostics): press `m` to send a test message.
+
+5. **Register your agents** (tab `1` Agents): press `a`, enter a name and the machine it runs on. The API key is shown once, with the two lines to put in that agent's `.env`:
+
+   ```text
+   JABS_DASHBOARD_URL=http://<this host>:5002
+   JABS_AGENT_KEY=<the key>
+   ```
+
+6. **Install the services** (quit the console first, or use another terminal):
+
+   ```bash
+   sudo deploy/install.sh
+   ```
+
+   This runs a config check and then installs and starts a web service (gunicorn) and a timer that runs the periodic tasks every 5 minutes. The service runs as the invoking user, never root; use `--user NAME` if you are not running `sudo` from that user's session.
+
+7. **Check it.** Open `http://<this host>:5002/` and `/healthz`. In the console, tab `5` Service shows the units and follows their journal, and tab `1` shows each agent's last contact once it reports.
+
+To try the dashboard before installing services, run `.venv/bin/python -m app web --dev` (http://localhost:5002/).
+
 ## Pages
 
 | Page | What it shows |
@@ -18,57 +59,32 @@ v2 replaces the legacy dashboard (`../dashboard`, "v1"). The v1 agent endpoints 
 
 Light and dark themes follow the toggle in the top bar. `/healthz` returns `{"status": "ok", ...}` for monitors.
 
-## Install
+## Service
 
-Needs Python 3.11 or newer and `python3-venv`.
-
-```bash
-./setup.sh            # venv, dependencies, config files from the examples, empty database
-$EDITOR config/config.yaml .env
-.venv/bin/python -m app agent add NAME      # prints the agent's API key once
-.venv/bin/python -m app web --dev           # try it at http://localhost:5002/
-```
-
-`./setup.sh --dev` also installs the test dependencies. It never overwrites existing files.
-
-### Run as a service
-
-```bash
-sudo deploy/install.sh                      # units named jabs-dashboard-v2
-sudo deploy/install.sh --name jabs-dashboard --user NAME   # at cutover from v1
-```
-
-This installs a web service (gunicorn) and a timer that runs `python -m app tick` every 5 minutes, runs the config check as the service user first, and starts both. The service runs as the invoking user, never root. After editing `config.yaml` or `.env`, run `sudo systemctl restart <unit>`.
+`sudo deploy/install.sh` installs units named `jabs-dashboard-v2` (`--name` changes it, for example `jabs-dashboard` at cutover from v1) and `<name>-tick.service` / `.timer`. `deploy/install.sh --render-only DIR` previews the unit files without touching the system. Logs go to the journal; there are no log files.
 
 ```bash
 systemctl status jabs-dashboard-v2 jabs-dashboard-v2-tick.timer
 journalctl -u jabs-dashboard-v2 -f            # web
 journalctl -u jabs-dashboard-v2-tick          # periodic tasks
-deploy/install.sh --render-only DIR           # preview the units without touching the system
+sudo systemctl restart jabs-dashboard-v2      # after editing config.yaml or .env
 ```
 
-Logs go to the journal; there are no log files.
+After updating the code, run `./setup.sh` again (it only fills in what is missing) and restart the service.
 
 ## Configuration
 
-`config/config.yaml` (copy of `config.example.yaml`; every key is documented there):
+| File | What it holds |
+| --- | --- |
+| `config/config.yaml` | Timezone, server, status badges, storage drives and S3 buckets, email, retention. Every key is documented in `config.example.yaml`. Read at start-up, so restart the service after editing |
+| `config/agents.yaml` | The agent registry. Keys are stored only as SHA-256 hashes. Managed with the `agent` commands or the console; edits take effect without a restart |
+| `.env` | Secrets: `JABS_SMTP_USER`, `JABS_SMTP_PASS`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`. `ENV_MODE=development` raises logging to DEBUG and prefixes email subjects with `[DEV]` |
 
-- `timezone`: used to group days and show times.
-- `server`: host, port, gunicorn workers and threads.
-- `badges`: status images across the top, for example Uptime Kuma badge URLs.
-- `storage`: local drives to sample and S3 buckets (CloudWatch daily sizes, or a bucket listing).
-- `email`: SMTP server, recipients, digest schedule, offline alerts.
-- `retention`: how long runs, rollups, status history, storage samples are kept.
-
-`config/agents.yaml` is the agent registry. Keys are stored only as SHA-256 hashes. Edits take effect without a restart. An agent is identified by its key, so renaming an entry in the file keeps its key working, but its history (stored under the name) starts again under the new name. Names use letters, digits, `.`, `_` and `-`. If the file is invalid the dashboard logs why, keeps the last good copy while running, and rejects every key if it starts with none; `python -m app config` shows the error.
-
-`.env` holds secrets: `JABS_SMTP_USER`, `JABS_SMTP_PASS`, and `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` for S3. `ENV_MODE=development` raises the log level to DEBUG and prefixes email subjects with `[DEV]`.
-
-Check the files with `python -m app config`.
+Check the files with `python -m app config` or the console's Files tab. An agent is identified by its key, so renaming its entry keeps the key working, but its history (stored under the name) starts again under the new name. If `agents.yaml` becomes invalid the dashboard logs why and keeps the last good copy while running; with none it rejects every key.
 
 ## Command line
 
-Run as `.venv/bin/python -m app <command>`.
+Run as `.venv/bin/python -m app <command>`. The [admin console](#admin-console) can do everything below except serve the web UI; destructive commands here need `--yes`.
 
 | Command | Purpose |
 | --- | --- |
@@ -96,62 +112,48 @@ Run as `.venv/bin/python -m app <command>`.
 
 ## Admin console
 
-`.venv/bin/python -m app admin` opens a full-screen console for the person administering the dashboard. It does everything the command line does, and nothing that the web UI shows (there is no job or run browsing). Switch tabs with `1` to `6` or the mouse; the footer lists the keys for the current tab. `r` refreshes, `q` quits.
+`.venv/bin/python -m app admin` opens a full-screen console for the person administering the dashboard: everything the command line does, and nothing the web UI already shows. Switch tabs with `1` to `6` or the mouse; the footer lists the keys for the current tab; `r` refreshes and `q` quits.
 
 | Tab | What you can do |
 | --- | --- |
-| 1 Agents | See each agent's settings and last contact. Add, edit, enable or disable, issue a new key and remove agents. A new key is shown once, with the lines to paste into the agent's `.env` |
-| 2 Files | See whether `config.yaml`, `agents.yaml` and `.env` are valid and have safe permissions. **Edit** opens the file in your system editor (`$VISUAL`, `$EDITOR`, else the system default such as nano) and checks it when you leave; an invalid file can be edited again, reverted or kept. After `config.yaml` or `.env` changes it offers to restart the service |
-| 3 Database | Version, size and row counts. Back up, restore (typed confirmation), check integrity, vacuum, migrate, delete runs for an agent or job (or mark individual runs with Space and delete just those; each run is listed with its time, status, target, size, id and message), purge storage samples, reset |
-| 4 Diagnostics | Run the tick now with per-task results, send a test mail, preview and optionally send the digest, preview and test-send an offline alert (marked `[TEST]`, no state is changed), find which agent a pasted API key belongs to, view the internal state, run the development server |
-| 5 Service | State of the web service, the tick service and the tick timer; start, stop and restart (uses `sudo`); follow the journal live |
-| 6 Docs | Read the Markdown files of the install (README, AGENTS and so on) with a file list on the left. Links between documents work, `b` goes back, web links are shown but never opened. Only files inside the install directory are shown; dependency, data and log directories are skipped |
+| 1 Agents | See settings and last contact. Add, edit, enable or disable, issue a new key, remove. A new key is shown once, with the lines for the agent's `.env` |
+| 2 Files | Check `config.yaml`, `agents.yaml` and `.env` (valid, safe permissions). **Edit** opens the file in your system editor (`$VISUAL`, `$EDITOR`, else the system default such as nano) and validates it afterwards: edit again, revert or keep. Offers a service restart after `config.yaml` or `.env` changes |
+| 3 Database | Version, size and row counts. Back up, restore, check integrity, vacuum, migrate, reset, purge storage samples, and delete runs for an agent or job, or mark individual runs (Space) and delete just those. Runs are listed with time, status, target, size, id and message |
+| 4 Diagnostics | Run the tick now, send a test mail, preview and send the digest, preview and test-send an offline alert (marked `[TEST]`, changes no state), find which agent an API key belongs to, view internal state, run the development server |
+| 5 Service | State of the web service, tick service and timer; start, stop, restart (uses `sudo`); follow the journal |
+| 6 Docs | Read the install's Markdown files (this README, AGENTS and so on). Links between documents work and `b` goes back; web links are shown but never opened |
 
-Run it as the user that owns the install (the user the service runs as). It refuses to start as root when the install belongs to someone else, because files created by root would stop the dashboard writing its own database. The units are found by their working directory; if that fails, give the name with `--unit jabs-dashboard-v2`. Administrative changes (agents, restores, resets, service actions) are recorded in the journal under the identifier `jabs-admin`; keys and passwords never are.
+Run it as the user that owns the install. It refuses to start as root when the install belongs to someone else, because root-owned files would stop the dashboard writing its own database. Units are found by their working directory; if that fails, pass `--unit jabs-dashboard-v2`. Administrative changes are recorded in the journal as `jabs-admin` (never keys or passwords). It needs the `textual` package, installed by `./setup.sh`.
 
-The console needs the `textual` package; after updating, run `.venv/bin/pip install -r requirements.txt`.
+## Agent API
 
-## Agents
+An agent sends its key in the `X-API-Key` header. The v1 endpoints, documented in [`../dashboard/AGENTS_API_GUIDE.md`](../dashboard/AGENTS_API_GUIDE.md), behave exactly as in v1:
 
-An agent sends its key in the `X-API-Key` header.
-
-v1-compatible endpoints, documented in [`../dashboard/AGENTS_API_GUIDE.md`](../dashboard/AGENTS_API_GUIDE.md):
-
-- `POST /api/monitoring/events` (job events, and heartbeats when `target_id` is omitted)
+- `POST /api/monitoring/events` (job events, and heartbeats when `target_id` is omitted; accepts an optional `hostname`)
 - `POST /api/monitoring/target-purged`
 - `GET /api/heartbeat` (health check for monitors such as Uptime Kuma; no key needed)
 
-New endpoints under `/api/v2/`, which an agent opts into:
+New endpoints live under `/api/v2/` and are opt-in per agent:
 
 ```text
 POST /api/v2/storage   {"hostname"?: "...", "samples": [{"name", "kind": "local|cloud|repo",
                          "used_bytes", "total_bytes"?, "series"?, "timestamp"?}]}
 ```
 
-`POST /api/monitoring/events` also accepts an optional `hostname`.
+Stored storage samples count as contact, but the Overview charts only the drives and S3 buckets listed under `storage:` in `config.yaml`. Agent-supplied text is untrusted and always rendered as text, never as HTML.
 
-- Storage: any post counts as hearing from the agent. The samples are stored, but the Overview charts only the drives and S3 buckets listed under `storage:` in `config.yaml`.
+**Hosts.** A job name alone is not unique when agents run on several machines, so every job is shown with its host. An agent reports its machine name in `hostname` (always used when present); otherwise `host` in `agents.yaml` is used (`agent add NAME --host HOST`), otherwise the agent name. A reported name that is not a plausible host name is ignored, not rejected.
 
-Agent-supplied text is untrusted and is always rendered as text, never as HTML.
+**Up or down.** Any authenticated post counts as contact, including a bare heartbeat. With no contact for its `grace_minutes` an agent is logged `down`; the next contact logs it `up`. If the dashboard itself was not running, the gap is shown as "no data" and agents get a fresh grace period.
 
-### Hosts
+## Email and periodic tasks
 
-Several agents can run on one machine, and the same agent type can run on several machines, so a job name alone is not unique. An agent can report the name of its machine in a `hostname` field on `/api/monitoring/events` and `/api/v2/storage`; that name is always used when present. For agents that do not report one, set `host` in `agents.yaml` (`agent add NAME --host HOST`). An unusable reported name (not a plausible host name) is ignored rather than rejected. Every page that shows a job also shows its host (and the agent name when that differs), and the jobs table and the Agents page can be sorted or grouped by host. An agent with neither is shown under its agent name.
+Set `email.smtp_server` and `email.to_addrs` in `config.yaml` and the login in `.env`, then send a test (console: Diagnostics, or `python -m app testmail`). Port 465 uses implicit TLS; otherwise `use_tls` selects STARTTLS; without credentials mail is sent unauthenticated (a LAN relay).
 
-### How agents are judged up or down
+- **Offline alert** when an agent is logged `down`, repeated per `max_alerts` and `repeat_interval_minutes`, with a recovery mail after the first contact. `offline_alerts: false` on an agent in `agents.yaml` opts out.
+- **Digest** on the cron `email.digest.schedule`: finished runs, failed and stopped runs with their errors, and agent outages. Skipped when nothing happened.
 
-Any authenticated post from an agent counts as contact, including a bare heartbeat event. An agent with no contact for its `grace_minutes` is logged as `down`; the next contact logs it `up`. If the dashboard itself was not running, the gap is shown as "no data" and the agent gets a fresh grace period when the dashboard comes back.
-
-## Email
-
-Set `email.smtp_server` and `email.to_addrs`, put the login in `.env`, then run `python -m app testmail`. Port 465 uses implicit TLS; otherwise `use_tls` selects STARTTLS. Without credentials the mail is sent without logging in (a LAN relay).
-
-- Offline alert: sent when an agent is logged `down`, repeated per `max_alerts` and `repeat_interval_minutes`. A per-agent `offline_alerts: false` in `agents.yaml` opts out. A recovery mail follows the first contact after an alert unless `send_recovery` is false.
-- Digest: sent on the cron `email.digest.schedule`, in the configured timezone. It lists finished runs, failed and stopped runs with their errors, and agent outages. It is skipped when nothing happened.
-
-## What the periodic tick does
-
-Every 5 minutes: daily rollup of run counts, agent status changes, offline alerts, digest, local drive sampling, deleting runs and events older than `retention.runs_days` (their per-day counts stay in the rollup for `rollup_days`), purging old status and storage data, and S3 sampling when due. A failing task is logged and does not stop the others.
+The timer runs `python -m app tick` every 5 minutes: daily rollup, agent status changes, alerts, digest, drive and S3 sampling, and deleting runs and events older than `retention.runs_days` (their per-day counts stay for `rollup_days`) and old status and storage data. A failing task is logged and does not stop the others.
 
 ## Development
 
