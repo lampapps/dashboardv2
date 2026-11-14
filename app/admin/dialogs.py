@@ -3,12 +3,13 @@
 import asyncio
 from typing import Any, Callable, Optional
 
+from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Checkbox, Input, Label, OptionList, Static
+from textual.widgets import Button, Checkbox, DataTable, Input, Label, OptionList, Static
 from textual.widgets.option_list import Option
 
 from .. import config, db
@@ -153,6 +154,86 @@ class PickDialog(_Dialog):
     @on(Button.Pressed, "#cancel")
     def _cancel(self) -> None:
         self.dismiss(None)
+
+
+class MultiPickDialog(_Dialog):
+    """Mark any number of rows (Space or Enter toggles, a = all, n = none), then act on them.
+
+    `rows` are (key, cells); cell text is shown literally. Returns the marked keys in row order, or None when cancelled.
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"), Binding("space", "toggle_mark", "Mark"),
+        Binding("a", "mark_all", "All"), Binding("n", "mark_none", "None"),
+    ]
+
+    def __init__(self, title: str, columns: list, rows: list, action: str, note: str = "", danger: bool = False):
+        super().__init__()
+        self._title, self._columns, self._rows = title, columns, rows
+        self._action, self._note, self._danger = action, note, danger
+        self._marked: set = set()
+
+    def compose(self) -> ComposeResult:
+        with Vertical(classes="dialog huge"):
+            yield Label(self._title, classes="dialog-title")
+            if self._note:
+                yield Static(self._note, markup=False, classes="help")
+            yield DataTable(id="rows", cursor_type="row", zebra_stripes=True)
+            yield Static("", id="count", markup=False)
+            with Horizontal(classes="buttons"):
+                yield Button(self._action, id="ok", variant="error" if self._danger else "primary", disabled=True)
+                yield Button("Mark all", id="all")
+                yield Button("Cancel", id="cancel")
+
+    def on_mount(self) -> None:
+        table = self.query_one("#rows", DataTable)
+        table.add_column("", key="mark", width=3)
+        for index, name in enumerate(self._columns):
+            table.add_column(name, key=f"c{index}")
+        for key, cells in self._rows:
+            table.add_row("( )", *[Text(str(cell)) for cell in cells], key=str(key))
+        table.focus()
+        self._refresh()
+
+    def _refresh(self) -> None:
+        table = self.query_one("#rows", DataTable)
+        for key, _cells in self._rows:
+            table.update_cell(str(key), "mark", "(x)" if str(key) in self._marked else "( )")
+        self.query_one("#count", Static).update(f"{len(self._marked)} of {len(self._rows)} marked")
+        self.query_one("#ok", Button).disabled = not self._marked
+
+    def _current(self) -> Optional[str]:
+        table = self.query_one("#rows", DataTable)
+        if table.row_count == 0:
+            return None
+        return table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
+
+    def action_toggle_mark(self) -> None:
+        key = self._current()
+        if key is not None:
+            self._marked.symmetric_difference_update({key})
+            self._refresh()
+
+    def action_mark_all(self) -> None:
+        self._marked = {str(key) for key, _cells in self._rows}
+        self._refresh()
+
+    def action_mark_none(self) -> None:
+        self._marked = set()
+        self._refresh()
+
+    @on(DataTable.RowSelected)
+    def _row_selected(self) -> None:
+        self.action_toggle_mark()
+
+    @on(Button.Pressed)
+    def _pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "ok":
+            self.dismiss([key for key, _cells in self._rows if str(key) in self._marked])
+        elif event.button.id == "all":
+            self.action_mark_all()
+        else:
+            self.dismiss(None)
 
 
 class FormDialog(_Dialog):

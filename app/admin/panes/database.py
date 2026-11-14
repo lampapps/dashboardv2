@@ -3,6 +3,7 @@
 import asyncio
 from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from textual import on
 from textual.app import ComposeResult
@@ -10,10 +11,12 @@ from textual.binding import Binding
 from textual.containers import Horizontal
 from textual.widgets import Button, DataTable, Static
 
-from ... import db, maintenance, settings
+from ... import config, db, maintenance, settings
 from ..app import Pane
 from ..logs import audit
 from ..util import db_state, format_bytes, run_db
+
+RUN_LIST_LIMIT = 500
 
 
 class DatabasePane(Pane):
@@ -21,7 +24,8 @@ class DatabasePane(Pane):
     TAB_TITLE = "3 Database"
     ACTIONS = {
         "initdb": "do_migrate", "backup": "do_backup", "restore": "do_restore", "vacuum": "do_vacuum",
-        "check-db": "do_check", "reset": "do_reset", "runs.delete": "do_delete_runs", "storage.purge": "do_purge_storage",
+        "check-db": "do_check", "reset": "do_reset", "runs.delete": "do_delete_runs", "runs.list": "do_delete_runs",
+        "storage.purge": "do_purge_storage",
     }
     BINDINGS = [
         Binding("b", "backup", "Backup"), Binding("o", "restore", "Restore"), Binding("c", "check", "Check"),
@@ -174,13 +178,22 @@ class DatabasePane(Pane):
             totals[job["agent"]] = totals.get(job["agent"], 0) + job["runs"]
         options = []
         for agent, total in totals.items():
-            options.append((f"{agent}: all {total} run(s)", (agent, None)))
-            options += [(f"    {agent} / {j['job_name'] or '(unnamed)'}: {j['runs']} run(s)", (agent, j["job_name"]))
+            options.append((f"{agent}: all {total} run(s)", (agent, None, total)))
+            options += [(f"    {agent} / {j['job_name'] or '(unnamed)'}: {j['runs']} run(s)", (agent, j["job_name"], j["runs"]))
                         for j in jobs if j["agent"] == agent]
         choice = await self.admin.pick("Delete stored runs for...", options)
         if choice is None:
             return
-        agent, job = choice
+        agent, job, total = choice
+        if job is not None:
+            what = await self.admin.choose(
+                f"{agent} / {job or '(unnamed)'}", f"{total} stored run(s). Delete them all, or pick individual runs?",
+                [("Choose individual runs", "pick"), (f"Delete all {total}", "all"), ("Cancel", None)])
+            if what is None:
+                return
+            if what == "pick":
+                await self._delete_chosen_runs(agent, job)
+                return
         scope = f"agent '{agent}'" + (f", job '{job}'" if job is not None else " (every job)")
         ok, _ = await self.admin.confirm(
             "Delete runs", f"Delete the stored runs and events for {scope}. Per-day counts already rolled up are kept.",
@@ -189,6 +202,32 @@ class DatabasePane(Pane):
             return
         deleted = await asyncio.to_thread(run_db, maintenance.delete_runs, agent, job)
         audit("runs deleted", agent=agent, job=job, runs=deleted)
+        await self.reload()
+        await self.admin.show("Delete runs", f"Deleted {deleted} run(s).")
+
+    async def _delete_chosen_runs(self, agent: str, job: str) -> None:
+        runs = await asyncio.to_thread(run_db, maintenance.list_runs, agent, job, RUN_LIST_LIMIT)
+        try:
+            tz = ZoneInfo((await asyncio.to_thread(config.load_config)).timezone)
+        except config.ConfigError:
+            tz = None
+        rows = [(run["id"], (datetime.fromtimestamp(run["started_at"], tz).strftime("%Y-%m-%d %H:%M:%S"), run["status"],
+                             run["target_label"] or "-",
+                             "-" if run["runtime_seconds"] is None else f"{run['runtime_seconds']:.0f} s",
+                             format_bytes(run["bytes_processed"] or 0), run["id"])) for run in runs]
+        note = (f"Newest {RUN_LIST_LIMIT} shown." if len(runs) >= RUN_LIST_LIMIT else "") + " Space marks a run."
+        ids = await self.admin.multipick(
+            f"Delete runs of {agent} / {job or '(unnamed)'}", ["Started", "Status", "Target", "Took", "Size", "Id"], rows,
+            "Delete marked", note=note.strip(), danger=True)
+        if not ids:
+            return
+        ok, _ = await self.admin.confirm(
+            "Delete runs", f"Delete {len(ids)} run(s) and their events? Inside the retention window the activity "
+            "chart follows at the next tick; counts already rolled up for older days stay.", confirm="Delete", danger=True)
+        if not ok:
+            return
+        deleted = await asyncio.to_thread(run_db, maintenance.delete_run_ids, ids)
+        audit("runs deleted", agent=agent, job=job, run_ids=",".join(str(i) for i in ids), runs=deleted)
         await self.reload()
         await self.admin.show("Delete runs", f"Deleted {deleted} run(s).")
 

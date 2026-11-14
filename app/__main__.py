@@ -215,18 +215,41 @@ def _cmd_meta(_args: argparse.Namespace) -> int:
 
 
 def _cmd_runs_usage(_args: argparse.Namespace) -> int:
-    print("usage: python -m app runs delete --agent NAME [--job JOB] --yes", file=sys.stderr)
+    print("usage: python -m app runs {list,delete} ...", file=sys.stderr)
     return 2
 
 
+def _cmd_runs_list(args: argparse.Namespace) -> int:
+    conn = db.connect()
+    try:
+        runs = maintenance.list_runs(conn, args.agent, args.job, args.limit)
+    finally:
+        conn.close()
+    for run in runs:
+        started = datetime.fromtimestamp(run["started_at"]).strftime("%Y-%m-%d %H:%M:%S")
+        runtime = "-" if run["runtime_seconds"] is None else f"{run['runtime_seconds']:.0f}s"
+        print(f"{run['id']}\t{started}\t{run['status']}\t{run['job_name']}\t{run['target_label'] or '-'}\t{runtime}")
+    if not runs:
+        print("no runs found")
+    return 0
+
+
 def _cmd_runs_delete(args: argparse.Namespace) -> int:
-    scope = f"agent '{args.agent}'" + (f", job '{args.job}'" if args.job is not None else "")
+    if args.id and (args.agent or args.job is not None):
+        print("use either --id (specific runs) or --agent [--job] (everything of an agent or job), not both", file=sys.stderr)
+        return 2
+    if not args.id and not args.agent:
+        print("give --id RUN_ID (repeatable; see 'runs list') or --agent NAME [--job JOB]", file=sys.stderr)
+        return 2
+    scope = (f"run(s) {', '.join(str(i) for i in args.id)}" if args.id else
+             f"agent '{args.agent}'" + (f", job '{args.job}'" if args.job is not None else ""))
     if not args.yes:
         print(f"runs delete removes stored runs and events for {scope}; re-run with --yes to confirm", file=sys.stderr)
         return 2
     conn = db.connect()
     try:
-        deleted = maintenance.delete_runs(conn, args.agent, args.job)
+        deleted = (maintenance.delete_run_ids(conn, args.id) if args.id
+                   else maintenance.delete_runs(conn, args.agent, args.job))
     finally:
         conn.close()
     print(f"deleted {deleted} run(s) for {scope}")
@@ -281,9 +304,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--yes", action="store_true", help="confirm deleting all history")
 
     runs = add("runs", _cmd_runs_usage, "manage stored runs")
-    runs_delete = runs.add_subparsers(dest="runs_command", metavar="subcommand").add_parser(
-        "delete", help="delete an agent's stored runs (and events), or one job's")
-    runs_delete.add_argument("--agent", required=True)
+    runs_sub = runs.add_subparsers(dest="runs_command", metavar="subcommand")
+    runs_list = runs_sub.add_parser("list", help="list an agent's stored runs with their ids, newest first")
+    runs_list.add_argument("--agent", required=True)
+    runs_list.add_argument("--job", help="only this job")
+    runs_list.add_argument("--limit", type=int, default=50, help="how many to show (default 50)")
+    runs_list.set_defaults(func=_cmd_runs_list)
+    runs_delete = runs_sub.add_parser(
+        "delete", help="delete specific runs by id, or all of an agent's (or one job's) runs")
+    runs_delete.add_argument("--id", type=int, action="append", help="a run id (repeatable)")
+    runs_delete.add_argument("--agent")
     runs_delete.add_argument("--job", help="only this job (default: all the agent's runs)")
     runs_delete.add_argument("--yes", action="store_true", help="confirm deleting")
     runs_delete.set_defaults(func=_cmd_runs_delete)

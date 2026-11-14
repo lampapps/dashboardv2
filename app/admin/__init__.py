@@ -22,6 +22,7 @@ COVERAGE = {
     "meta": "meta",
     "reset": "reset",
     "runs delete": "runs.delete",
+    "runs list": "runs.list",
     "storage purge": "storage.purge",
     "agent add": "agents.add",
     "agent list": "agents.list",

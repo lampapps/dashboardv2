@@ -59,6 +59,7 @@ class AdminApp(App):
         Binding("3", "tab('database')", "Database", show=False),
         Binding("4", "tab('diagnostics')", "Diagnostics", show=False),
         Binding("5", "tab('service')", "Service", show=False),
+        Binding("6", "tab('docs')", "Docs", show=False),
     ]
 
     def __init__(self, unit: Optional[str] = None, capture: Optional[Capture] = None):
@@ -153,6 +154,9 @@ class AdminApp(App):
 
     async def form(self, title: str, fields: list, submit: Callable[[dict], Any], save_label: str = "Save") -> Any:
         return await self.push_screen_wait(dialogs.FormDialog(title, fields, submit, save_label))
+
+    async def multipick(self, title: str, columns: list, rows: list, action: str, **options: Any) -> Any:
+        return await self.push_screen_wait(dialogs.MultiPickDialog(title, columns, rows, action, **options))
 
     # ---------------------------------------------------------------- service helpers
 

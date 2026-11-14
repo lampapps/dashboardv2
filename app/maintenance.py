@@ -125,6 +125,35 @@ def job_counts(conn: sqlite3.Connection) -> list:
         "SELECT agent, job_name, COUNT(*) AS runs FROM runs GROUP BY agent, job_name ORDER BY agent, job_name")]
 
 
+def list_runs(conn: sqlite3.Connection, agent: str, job_name: Optional[str] = None, limit: int = 500) -> list:
+    """An agent's stored runs, newest first, optionally one job's; each a dict with id, job_name, target_label,
+    status, started_at, runtime_seconds and bytes_processed."""
+    clause, params = "agent = ?", [agent]
+    if job_name is not None:
+        clause += " AND job_name = ?"
+        params.append(job_name)
+    return [dict(row) for row in conn.execute(
+        "SELECT id, job_name, target_label, status, started_at, runtime_seconds, bytes_processed FROM runs "
+        f"WHERE {clause} ORDER BY started_at DESC, id DESC LIMIT ?", (*params, max(1, limit)))]
+
+
+def delete_run_ids(conn: sqlite3.Connection, ids: list) -> int:
+    """Delete specific runs (and their events) by id; returns how many existed.
+
+    Inside the retention window the day's activity count follows at the next tick; older rolled-up counts stay.
+    """
+    wanted = sorted({int(i) for i in ids})
+    deleted = 0
+    with db.transaction(conn):
+        for start in range(0, len(wanted), 500):
+            chunk = wanted[start:start + 500]
+            deleted += conn.execute(
+                f"DELETE FROM runs WHERE id IN ({', '.join('?' * len(chunk))})", chunk).rowcount
+        if deleted:
+            db.bump_rev(conn)
+    return deleted
+
+
 def delete_runs(conn: sqlite3.Connection, agent: str, job_name: Optional[str] = None) -> int:
     """Delete an agent's runs (and their events), optionally only one job's; returns the runs deleted.
 

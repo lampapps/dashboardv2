@@ -50,7 +50,7 @@ async def press(pilot, app, button_id):
 
 
 def table_rows(app, table_id):
-    table = app.query_one(f"#{table_id}", DataTable)
+    table = app.screen.query_one(f"#{table_id}", DataTable)
     return [[str(cell) for cell in table.get_row_at(i)] for i in range(table.row_count)]
 
 
@@ -469,6 +469,12 @@ def add_run(agent="a", job="J"):
     conn.close()
 
 
+def add_run_id(conn, agent, job, started, target=""):
+    return conn.execute(
+        "INSERT INTO runs (agent, job_name, target_label, status, started_at, updated_at) "
+        "VALUES (?, ?, ?, 'success', ?, ?)", (agent, job, target, started, started)).lastrowid
+
+
 def count_runs():
     conn = db.connect()
     try:
@@ -628,7 +634,7 @@ class TestDatabase:
 
         drive(scenario)
 
-    def test_delete_runs_by_job(self, home):
+    def test_delete_all_runs_of_a_job(self, home):
         db.init_db()
         add_run("a", "J1")
         add_run("a", "J2")
@@ -638,12 +644,125 @@ class TestDatabase:
             db_button(app, "delete_runs").press()
             await wait_dialog(pilot, app, "Delete stored runs for...")
             await pilot.press("down", "enter")                 # "a / J1" under "a: all 2 run(s)"
+            await wait_dialog(pilot, app, "a / J1")
+            await press(pilot, app, "choice-1")                # Delete all 1
             await wait_dialog(pilot, app, "Delete runs")
             await press(pilot, app, "ok")
             await wait_for(pilot, lambda: "Deleted 1 run" in dialog_text(app))
 
         drive(scenario)
         assert count_runs() == 1
+
+    def test_delete_all_runs_of_an_agent(self, home):
+        db.init_db()
+        add_run("a", "J1")
+        add_run("a", "J2")
+
+        async def scenario(app, pilot):
+            await open_tab(pilot, "3")
+            db_button(app, "delete_runs").press()
+            await wait_dialog(pilot, app, "Delete stored runs for...")
+            await pilot.press("enter")
+            await wait_dialog(pilot, app, "Delete runs")
+            await press(pilot, app, "ok")
+            await wait_for(pilot, lambda: "Deleted 2 run" in dialog_text(app))
+
+        drive(scenario)
+        assert count_runs() == 0
+
+    def _open_run_picker(self, app, pilot):
+        async def go():
+            await open_tab(pilot, "3")
+            db_button(app, "delete_runs").press()
+            await wait_dialog(pilot, app, "Delete stored runs for...")
+            await pilot.press("down", "enter")
+            await wait_dialog(pilot, app, "a / J1")
+            await press(pilot, app, "choice-0")                # Choose individual runs
+            await wait_dialog(pilot, app, "Delete runs of a / J1")
+        return go()
+
+    def test_pick_and_delete_single_runs(self, home):
+        db.init_db()
+        conn = db.connect()
+        ids = [add_run_id(conn, "a", "J1", started=1_700_000_000 + i) for i in range(3)]
+        add_run_id(conn, "a", "J2", started=500)
+        conn.close()
+
+        async def scenario(app, pilot):
+            await self._open_run_picker(app, pilot)
+            rows = table_rows(app, "rows")
+            assert [r[1][:4] for r in rows] == ["2023"] * 3 and [int(r[-1]) for r in rows] == [ids[2], ids[1], ids[0]]
+            assert app.screen.query_one("#ok", Button).disabled is True
+            await pilot.press("space")                          # newest run
+            await pilot.press("down", "down", "space")          # oldest run
+            await pilot.pause(0.1)
+            assert "2 of 3 marked" in str(app.screen.query_one("#count", Static).render())
+            assert table_rows(app, "rows")[0][0] == "(x)" and table_rows(app, "rows")[1][0] == "( )"
+            await press(pilot, app, "ok")
+            await wait_dialog(pilot, app, "Delete runs")
+            await press(pilot, app, "ok")
+            await wait_for(pilot, lambda: "Deleted 2 run" in dialog_text(app))
+
+        drive(scenario)
+        conn = db.connect()
+        assert [r["id"] for r in conn.execute("SELECT id FROM runs WHERE job_name = 'J1'")] == [ids[1]]
+        assert count_runs() == 2
+        conn.close()
+
+    def test_toggle_all_none_and_cancel(self, home):
+        db.init_db()
+        conn = db.connect()
+        for i in range(3):
+            add_run_id(conn, "a", "J1", started=100 + i)
+        conn.close()
+
+        async def scenario(app, pilot):
+            await self._open_run_picker(app, pilot)
+            await pilot.press("a")
+            await pilot.pause(0.1)
+            assert "3 of 3 marked" in str(app.screen.query_one("#count", Static).render())
+            await pilot.press("n")
+            await pilot.pause(0.1)
+            assert "0 of 3 marked" in str(app.screen.query_one("#count", Static).render())
+            assert app.screen.query_one("#ok", Button).disabled is True
+            await pilot.press("enter")                          # Enter toggles the current row too
+            await pilot.pause(0.1)
+            assert "1 of 3 marked" in str(app.screen.query_one("#count", Static).render())
+            await press(pilot, app, "cancel")
+            await pilot.pause(0.2)
+            assert dialog_title(app) is None
+
+        drive(scenario)
+        assert count_runs() == 3
+
+    def test_declining_the_final_confirmation_deletes_nothing(self, home):
+        db.init_db()
+        conn = db.connect()
+        add_run_id(conn, "a", "J1", started=100)
+        conn.close()
+
+        async def scenario(app, pilot):
+            await self._open_run_picker(app, pilot)
+            await pilot.press("space")
+            await press(pilot, app, "ok")
+            await wait_dialog(pilot, app, "Delete runs")
+            await press(pilot, app, "cancel")
+            await pilot.pause(0.2)
+
+        drive(scenario)
+        assert count_runs() == 1
+
+    def test_run_labels_are_shown_literally(self, home):
+        db.init_db()
+        conn = db.connect()
+        add_run_id(conn, "a", "J1", started=100, target="[bold red]boom[/]")
+        conn.close()
+
+        async def scenario(app, pilot):
+            await self._open_run_picker(app, pilot)
+            assert table_rows(app, "rows")[0][3] == "[bold red]boom[/]"
+
+        drive(scenario)
 
     def test_purge_storage_samples(self, home):
         db.init_db()

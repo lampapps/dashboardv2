@@ -127,6 +127,44 @@ class TestDeletingHistory:
         assert maintenance.storage_series(conn) == [{"source": "a", "kind": "repo", "name": "r1", "samples": 1}]
 
 
+class TestSingleRuns:
+    def test_list_is_newest_first_filtered_and_limited(self, conn):
+        first = add_run(conn, job="J1")
+        second = add_run(conn, job="J1")
+        add_run(conn, job="J2")
+        add_run(conn, agent="b", job="J1")
+        conn.execute("UPDATE runs SET started_at = id")
+        assert [r["id"] for r in maintenance.list_runs(conn, "a", "J1")] == [second, first]
+        assert len(maintenance.list_runs(conn, "a")) == 3
+        assert [r["id"] for r in maintenance.list_runs(conn, "a", "J1", limit=1)] == [second]
+        assert set(maintenance.list_runs(conn, "a")[0]) == {
+            "id", "job_name", "target_label", "status", "started_at", "runtime_seconds", "bytes_processed"}
+
+    def test_delete_by_id_removes_only_those_runs_and_their_events(self, conn):
+        keep = add_run(conn)
+        gone = add_run(conn)
+        other = add_run(conn)
+        assert maintenance.delete_run_ids(conn, [gone, other, gone, 9999]) == 2
+        assert [r["id"] for r in conn.execute("SELECT id FROM runs")] == [keep]
+        assert count(conn, "events") == 1
+
+    def test_delete_by_id_bumps_the_revision_only_when_something_went(self, conn):
+        run = add_run(conn)
+        before = db.get_meta(conn, "rev")
+        assert maintenance.delete_run_ids(conn, [9999]) == 0 and db.get_meta(conn, "rev") == before
+        assert maintenance.delete_run_ids(conn, [run]) == 1 and db.get_meta(conn, "rev") != before
+
+    def test_many_ids_are_deleted_in_chunks(self, conn):
+        ids = [add_run(conn, with_event=False) for _ in range(1200)]
+        assert maintenance.delete_run_ids(conn, ids) == 1200
+        assert count(conn, "runs") == 0
+
+    def test_ids_must_be_numbers(self, conn):
+        with pytest.raises(ValueError):
+            maintenance.delete_run_ids(conn, ["1; DROP TABLE runs"])
+        assert count(conn, "meta") >= 0
+
+
 class TestHealth:
     def test_a_healthy_database_has_no_problems(self, conn):
         assert maintenance.integrity_problems(conn) == []
@@ -292,3 +330,31 @@ class TestCli:
     def test_verbose_tick_lists_tasks(self, home, capsys):
         out = run_cli(capsys, "tick", "-v")[1]
         assert "daily rollup" in out and "ok" in out
+
+    def test_runs_list_shows_ids_newest_first(self, home, capsys):
+        db.init_db()
+        conn = db.connect()
+        first, second = add_run(conn, job="J"), add_run(conn, job="J")
+        conn.execute("UPDATE runs SET started_at = id")
+        conn.close()
+        code, out, _ = run_cli(capsys, "runs", "list", "--agent", "a", "--job", "J")
+        assert code == 0
+        lines = out.strip().splitlines()
+        assert [line.split("\t")[0] for line in lines] == [str(second), str(first)]
+        assert "no runs found" in run_cli(capsys, "runs", "list", "--agent", "ghost")[1]
+
+    def test_runs_delete_by_id_needs_confirmation(self, home, capsys):
+        db.init_db()
+        conn = db.connect()
+        keep, gone = add_run(conn), add_run(conn)
+        conn.close()
+        assert run_cli(capsys, "runs", "delete", "--id", str(gone))[0] == 2
+        code, out, _ = run_cli(capsys, "runs", "delete", "--id", str(gone), "--id", "9999", "--yes")
+        assert code == 0 and "deleted 1 run" in out
+        conn = db.connect()
+        assert [r["id"] for r in conn.execute("SELECT id FROM runs")] == [keep]
+        conn.close()
+
+    def test_runs_delete_rejects_ambiguous_or_empty_requests(self, home, capsys):
+        assert run_cli(capsys, "runs", "delete", "--yes")[0] == 2
+        assert run_cli(capsys, "runs", "delete", "--id", "1", "--agent", "a", "--yes")[0] == 2
