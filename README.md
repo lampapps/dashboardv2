@@ -74,14 +74,39 @@ Run as `.venv/bin/python -m app <command>`.
 | --- | --- |
 | `initdb` | Create or upgrade the database schema (safe to repeat) |
 | `config` | Validate `config.yaml` and `agents.yaml` |
+| `admin [--unit NAME]` | Open the interactive [administration console](#admin-console) |
 | `web [--dev]` | Serve the UI and API (gunicorn, or Flask's server with `--dev`) |
-| `tick` | Run the periodic tasks once (the timer does this) |
+| `tick [-v]` | Run the periodic tasks once (the timer does this); `-v` prints each task's time and result |
 | `testmail` | Send a test message with the email settings |
 | `agent add NAME [--host HOST] [--grace-minutes N] [--notes TEXT] [--allowed-ip IP]` | Register an agent and print its key once |
 | `agent list`, `agent enable NAME`, `agent disable NAME` | Manage the registry; a disabled agent's key is rejected |
+| `agent set NAME [--host H] [--grace-minutes N] [--notes T] [--allowed-ip IP] [--alerts/--no-alerts]` | Change an agent's settings (an empty `--allowed-ip ''` clears the restriction) |
 | `agent rekey NAME` | Issue a new API key for an agent (printed once); the old key stops working at once, the name and history stay |
+| `agent remove NAME --yes [--purge-history]` | Delete an agent from the registry; `--purge-history` also deletes its runs, status and storage samples |
 | `backup [--dest FILE]` | Consistent copy of the database, safe while running |
+| `restore FILE --yes` | Replace the database with a backup; the current one is first saved as `pre-restore-<time>.sqlite` |
+| `vacuum` | Reclaim free space in the database file |
+| `check-db` | Integrity check, size and row counts (exit status 1 when problems are found) |
+| `meta` | Show internal state such as the last tick and digest times |
+| `runs delete --agent NAME [--job JOB] --yes` | Delete an agent's stored runs and events, or one job's |
+| `storage purge [--source S] [--name N] --yes` | Delete stored storage samples, all or for one source or name |
 | `reset --yes` | Delete the database and all history |
+
+## Admin console
+
+`.venv/bin/python -m app admin` opens a full-screen console for the person administering the dashboard. It does everything the command line does, and nothing that the web UI shows (there is no job or run browsing). Switch tabs with `1` to `5` or the mouse; the footer lists the keys for the current tab. `r` refreshes, `q` quits.
+
+| Tab | What you can do |
+| --- | --- |
+| 1 Agents | See each agent's settings and last contact. Add, edit, enable or disable, issue a new key and remove agents. A new key is shown once, with the lines to paste into the agent's `.env` |
+| 2 Files | See whether `config.yaml`, `agents.yaml` and `.env` are valid and have safe permissions. **Edit** opens the file in your system editor (`$VISUAL`, `$EDITOR`, else the system default such as nano) and checks it when you leave; an invalid file can be edited again, reverted or kept. After `config.yaml` or `.env` changes it offers to restart the service |
+| 3 Database | Version, size and row counts. Back up, restore (typed confirmation), check integrity, vacuum, migrate, delete runs for an agent or job, purge storage samples, reset |
+| 4 Diagnostics | Run the tick now with per-task results, send a test mail, preview and optionally send the digest, preview and test-send an offline alert (marked `[TEST]`, no state is changed), find which agent a pasted API key belongs to, view the internal state, run the development server |
+| 5 Service | State of the web service, the tick service and the tick timer; start, stop and restart (uses `sudo`); follow the journal live |
+
+Run it as the user that owns the install (the user the service runs as). It refuses to start as root when the install belongs to someone else, because files created by root would stop the dashboard writing its own database. The units are found by their working directory; if that fails, give the name with `--unit jabs-dashboard-v2`. Administrative changes (agents, restores, resets, service actions) are recorded in the journal under the identifier `jabs-admin`; keys and passwords never are.
+
+The console needs the `textual` package; after updating, run `.venv/bin/pip install -r requirements.txt`.
 
 ## Agents
 

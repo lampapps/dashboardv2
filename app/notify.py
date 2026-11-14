@@ -40,6 +40,28 @@ def _duration(seconds: float) -> str:
 
 # ---------------------------------------------------------------- offline alerts
 
+def _offline_message(conn: sqlite3.Connection, cfg: Config, agent, last_contact: Optional[float],
+                     down_since: float, alert_number: int, now: float) -> tuple:
+    """(subject, text, html) of the offline alert for an agent."""
+    tz = ZoneInfo(cfg.timezone)
+    alert = cfg.email.offline_alert
+    host = resolve_hosts(conn, [agent])[agent.name]
+    text, html = mailer.render(
+        "offline", agent=agent.name, host=host, label=_label(host, agent.name), notes=agent.notes, grace_minutes=agent.grace_minutes,
+        last_contact=_fmt(last_contact, tz) if last_contact else "never",
+        silent_for=_duration(now - last_contact) if last_contact else "an unknown time",
+        down_since=_fmt(down_since, tz), alert_number=alert_number, max_alerts=alert.max_alerts,
+        recovery=alert.send_recovery, generated=_fmt(now, tz))
+    return f"JABS alert: agent {_label(host, agent.name)} is offline", text, html
+
+
+def preview_offline_alert(conn: sqlite3.Connection, cfg: Config, agent, now: float) -> tuple:
+    """(subject, text, html) as the offline alert would read if the agent went down now; sends nothing."""
+    row = conn.execute("SELECT last_heartbeat FROM agent_state WHERE name = ?", (agent.name,)).fetchone()
+    last_contact = row["last_heartbeat"] if row else None
+    return _offline_message(conn, cfg, agent, last_contact, now, 1, now)
+
+
 def _send_offline_alert(conn: sqlite3.Connection, cfg: Config, agent, state: sqlite3.Row, now: float) -> None:
     alert = cfg.email.offline_alert
     count = state["alert_count"]
@@ -47,16 +69,8 @@ def _send_offline_alert(conn: sqlite3.Connection, cfg: Config, agent, state: sql
         return
     if count and now - (state["last_alert_at"] or 0) < alert.repeat_interval_minutes * 60:
         return
-    tz = ZoneInfo(cfg.timezone)
-    last_contact = state["last_heartbeat"]
-    host = resolve_hosts(conn, [agent])[agent.name]
-    text, html = mailer.render(
-        "offline", agent=agent.name, host=host, label=_label(host, agent.name), notes=agent.notes, grace_minutes=agent.grace_minutes,
-        last_contact=_fmt(last_contact, tz) if last_contact else "never",
-        silent_for=_duration(now - last_contact) if last_contact else "an unknown time",
-        down_since=_fmt(state["status_since"], tz), alert_number=count + 1, max_alerts=alert.max_alerts,
-        recovery=alert.send_recovery, generated=_fmt(now, tz))
-    if mailer.send(cfg.email, f"JABS alert: agent {_label(host, agent.name)} is offline", text, html):
+    subject, text, html = _offline_message(conn, cfg, agent, state["last_heartbeat"], state["status_since"], count + 1, now)
+    if mailer.send(cfg.email, subject, text, html):
         with db.transaction(conn):
             conn.execute("UPDATE agent_state SET alert_count = alert_count + 1, last_alert_at = ? WHERE name = ?",
                          (now, agent.name))
@@ -150,7 +164,7 @@ def digest_data(conn: sqlite3.Connection, cfg: Config, agents: list, since: floa
     }
 
 
-def _digest_subject(data: dict, now: float, tz: ZoneInfo) -> str:
+def digest_subject(data: dict, now: float, tz: ZoneInfo) -> str:
     totals = data["totals"]
     subject = (f"JABS digest {datetime.fromtimestamp(now, tz):%Y-%m-%d}: "
                f"{totals['success']} ok, {totals['failed']} failed, {totals['stopped']} stopped")
@@ -168,7 +182,7 @@ def send_digest(conn: sqlite3.Connection, cfg: Config, since: float, now: float)
     if not (data["problems"] or data["outages"] or any(data["totals"].values())):
         return None
     text, html = mailer.render("digest", **data)
-    return mailer.send(cfg.email, _digest_subject(data, now, ZoneInfo(cfg.timezone)), text, html)
+    return mailer.send(cfg.email, digest_subject(data, now, ZoneInfo(cfg.timezone)), text, html)
 
 
 def digest_task(conn: sqlite3.Connection, cfg: Config, now: float) -> None:

@@ -1,5 +1,7 @@
 """Typed, validated configuration (config.yaml) and the agent registry (agents.yaml)."""
 
+import contextlib
+import fcntl
 import hashlib
 import ipaddress
 import os
@@ -7,7 +9,7 @@ import re
 import secrets
 import tempfile
 from pathlib import Path
-from typing import Literal, Optional, Union
+from typing import Callable, Iterator, Literal, Optional, Union
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -282,39 +284,97 @@ def add_agent(name: str, grace_minutes: int = 60, notes: str = "",
               allowed_ip: Optional[str] = None, path: Optional[PathLike] = None, host: str = "") -> str:
     """Register an agent and return its API key; only the key's hash is stored."""
     path = Path(path or settings.AGENTS_PATH)
-    agents = load_agents(path)
     key = generate_key()
     try:
         entry = AgentConfig(name=name, host=host, key_hash=hash_key(key), grace_minutes=grace_minutes,
                             notes=notes, allowed_ip=allowed_ip)
     except ValidationError as exc:
         raise ConfigError(_format_errors(path, exc)) from exc
-    if any(a.name == name for a in agents):
-        raise ConfigError(f"agent '{name}' already exists")
-    _write_agents(agents + [entry], path)
+
+    def add(agents: list) -> None:
+        if any(a.name == name for a in agents):
+            raise ConfigError(f"agent '{name}' already exists")
+        agents.append(entry)
+
+    _edit_agents(path, add)
     return key
+
+
+def _find(agents: list, name: str) -> AgentConfig:
+    for agent in agents:
+        if agent.name == name:
+            return agent
+    raise ConfigError(f"agent '{name}' not found")
+
+
+@contextlib.contextmanager
+def _registry_lock(path: Path) -> Iterator[None]:
+    """Serialise read-modify-write of agents.yaml between the CLI, the admin console and other processes."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        handle = open(path.parent / ".agents.lock", "a", encoding="utf-8")
+    except OSError:  # read-only directory: the write itself then fails with a clear error
+        yield
+        return
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        yield
+    finally:
+        handle.close()
+
+
+def _edit_agents(path: Path, change: Callable[[list], object]) -> object:
+    """Load the registry under the lock, let `change` modify the list in place, and write it back."""
+    with _registry_lock(path):
+        agents = load_agents(path)
+        result = change(agents)
+        _write_agents(agents, path)
+    return result
 
 
 def rekey_agent(name: str, path: Optional[PathLike] = None) -> str:
     """Give a registered agent a new API key (the old one stops working) and return it."""
-    path = Path(path or settings.AGENTS_PATH)
-    agents = load_agents(path)
-    for agent in agents:
-        if agent.name == name:
-            key = generate_key()
-            agent.key_hash = hash_key(key)
-            _write_agents(agents, path)
-            return key
-    raise ConfigError(f"agent '{name}' not found")
+    def rekey(agents: list) -> str:
+        key = generate_key()
+        _find(agents, name).key_hash = hash_key(key)
+        return key
+
+    return _edit_agents(Path(path or settings.AGENTS_PATH), rekey)
 
 
 def set_agent_enabled(name: str, enabled: bool, path: Optional[PathLike] = None) -> None:
     """Enable or disable a registered agent without touching its key."""
+    def toggle(agents: list) -> None:
+        _find(agents, name).enabled = enabled
+
+    _edit_agents(Path(path or settings.AGENTS_PATH), toggle)
+
+
+EDITABLE_AGENT_FIELDS = ("host", "grace_minutes", "notes", "allowed_ip", "offline_alerts")
+
+
+def update_agent(name: str, path: Optional[PathLike] = None, **changes: object) -> AgentConfig:
+    """Change an agent's settings (allowed_ip=None clears it) and return the validated entry."""
     path = Path(path or settings.AGENTS_PATH)
-    agents = load_agents(path)
-    for agent in agents:
-        if agent.name == name:
-            agent.enabled = enabled
-            _write_agents(agents, path)
-            return
-    raise ConfigError(f"agent '{name}' not found")
+    unknown = sorted(set(changes) - set(EDITABLE_AGENT_FIELDS))
+    if unknown:
+        raise ConfigError(f"cannot change {', '.join(unknown)}")
+
+    def update(agents: list) -> AgentConfig:
+        current = _find(agents, name)
+        try:
+            updated = AgentConfig.model_validate({**current.model_dump(), **changes})
+        except ValidationError as exc:
+            raise ConfigError(_format_errors(path, exc)) from exc
+        agents[agents.index(current)] = updated
+        return updated
+
+    return _edit_agents(path, update)
+
+
+def remove_agent(name: str, path: Optional[PathLike] = None) -> None:
+    """Delete an agent from the registry; its stored history is left alone."""
+    def remove(agents: list) -> None:
+        agents.remove(_find(agents, name))
+
+    _edit_agents(Path(path or settings.AGENTS_PATH), remove)

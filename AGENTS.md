@@ -14,6 +14,7 @@ Replacement for the legacy dashboard (`../dashboard`, "v1"). Read-only web UI pl
 - Python 3.11+, Flask (`create_app()`), gunicorn (gthread), SQLite in WAL mode, pydantic for config and request payloads only. DB rows are plain dicts / `sqlite3.Row`; no ORM.
 - Frontend: hand-written CSS variables and vanilla JS, Chart.js only (vendored, works offline). No Bootstrap, jQuery or build step.
 - `app/__main__.py` is the management CLI (`python -m app <command>`); prefer adding a subcommand over a shell script.
+- `app/admin/` is the Textual admin console (`python -m app admin`). Every CLI subcommand must also be doable there: add it to `admin.COVERAGE` and register the action id in a tab's `ACTIONS` (`TestParity` in `tests/unit/test_admin_support.py` fails otherwise). Keep logic in `app/maintenance.py`, `app/config.py` etc. so the CLI and console share it; the console only adds dialogs. Textual is imported lazily so `web` and `tick` never load it.
 - `app/db.py`: numbered `MIGRATIONS` tracked by `PRAGMA user_version`. Before the first production install migration 1 may be edited; afterwards only append.
 - `app/tick.py`: periodic tasks, run every 5 minutes by a systemd timer; each task does its own due-check and keeps its state in the `meta` table.
 - Email: `app/mailer.py` (SMTP send, templates in `app/mail_templates/`, `.txt` + `.html` pair per message) and `app/notify.py` (offline alerts and recovery from the logged `down`/`up` status, digest by cron schedule). Both run as tick tasks; `python -m app testmail` checks the settings.

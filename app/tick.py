@@ -37,14 +37,20 @@ TASKS = [
 ]
 
 
-def run_once(conn: sqlite3.Connection, cfg: Config, now: Optional[float] = None) -> None:
-    """Run every due task once. A failing task is logged and does not stop the others."""
+def run_once(conn: sqlite3.Connection, cfg: Config, now: Optional[float] = None) -> list:
+    """Run every due task once and return [{name, seconds, error}]. A failing task does not stop the others."""
     now = time.time() if now is None else now
     with db.transaction(conn):
         db.set_meta(conn, "last_tick_ts", repr(now))
+    results = []
     for name, task in TASKS:
+        started = time.monotonic()
+        error = None
         try:
             task(conn, cfg, now)
-        except Exception:  # pylint: disable=broad-except  # tasks are independent; one bug must not stop the rest
+        except Exception as exc:  # pylint: disable=broad-except  # tasks are independent; one bug must not stop the rest
             logger.exception("tick task '%s' failed", name)
+            error = f"{type(exc).__name__}: {exc}"
+        results.append({"name": name, "seconds": time.monotonic() - started, "error": error})
     logger.info("tick complete")
+    return results

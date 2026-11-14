@@ -7,6 +7,7 @@ __pycache__/
 .env
 config/config.yaml
 config/agents.yaml
+config/.agents.lock
 data/
 logs/
 keys/
