@@ -127,14 +127,16 @@ def job_counts(conn: sqlite3.Connection) -> list:
 
 def list_runs(conn: sqlite3.Connection, agent: str, job_name: Optional[str] = None, limit: int = 500) -> list:
     """An agent's stored runs, newest first, optionally one job's; each a dict with id, job_name, target_label,
-    status, started_at, runtime_seconds and bytes_processed."""
+    status, started_at, runtime_seconds, bytes_processed and message (the closing event's text, as on the Job page)."""
     clause, params = "agent = ?", [agent]
     if job_name is not None:
         clause += " AND job_name = ?"
         params.append(job_name)
     return [dict(row) for row in conn.execute(
-        "SELECT id, job_name, target_label, status, started_at, runtime_seconds, bytes_processed FROM runs "
-        f"WHERE {clause} ORDER BY started_at DESC, id DESC LIMIT ?", (*params, max(1, limit)))]
+        "SELECT id, job_name, target_label, status, started_at, runtime_seconds, bytes_processed, "
+        "COALESCE((SELECT message FROM events WHERE run_pk = runs.id AND event_type IN ('backup_complete', 'error') "
+        "ORDER BY id DESC LIMIT 1), (SELECT message FROM events WHERE run_pk = runs.id ORDER BY id DESC LIMIT 1)) "
+        f"AS message FROM runs WHERE {clause} ORDER BY started_at DESC, id DESC LIMIT ?", (*params, max(1, limit)))]
 
 
 def delete_run_ids(conn: sqlite3.Connection, ids: list) -> int:

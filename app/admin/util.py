@@ -46,3 +46,11 @@ def ago(ts: Optional[float], now: Optional[float] = None) -> str:
 
 
 format_bytes = maintenance.format_bytes
+
+
+def one_line(text: Optional[str], limit: int = 60) -> str:
+    """Text collapsed to one line and cut to `limit` characters with an ellipsis; '-' when empty."""
+    flat = " ".join((text or "").split())
+    if not flat:
+        return "-"
+    return flat if len(flat) <= limit else flat[:limit - 1] + "\u2026"

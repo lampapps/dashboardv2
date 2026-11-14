@@ -14,7 +14,7 @@ from textual.widgets import Button, DataTable, Static
 from ... import config, db, maintenance, settings
 from ..app import Pane
 from ..logs import audit
-from ..util import db_state, format_bytes, run_db
+from ..util import db_state, format_bytes, one_line, run_db
 
 RUN_LIST_LIMIT = 500
 
@@ -214,10 +214,11 @@ class DatabasePane(Pane):
         rows = [(run["id"], (datetime.fromtimestamp(run["started_at"], tz).strftime("%Y-%m-%d %H:%M:%S"), run["status"],
                              run["target_label"] or "-",
                              "-" if run["runtime_seconds"] is None else f"{run['runtime_seconds']:.0f} s",
-                             format_bytes(run["bytes_processed"] or 0), run["id"])) for run in runs]
+                             format_bytes(run["bytes_processed"] or 0), run["id"], one_line(run["message"])))
+                for run in runs]
         note = (f"Newest {RUN_LIST_LIMIT} shown." if len(runs) >= RUN_LIST_LIMIT else "") + " Space marks a run."
         ids = await self.admin.multipick(
-            f"Delete runs of {agent} / {job or '(unnamed)'}", ["Started", "Status", "Target", "Took", "Size", "Id"], rows,
+            f"Delete runs of {agent} / {job or '(unnamed)'}", ["Started", "Status", "Target", "Took", "Size", "Id", "Message"], rows,
             "Delete marked", note=note.strip(), danger=True)
         if not ids:
             return

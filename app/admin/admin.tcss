@@ -84,7 +84,8 @@ ConfirmDialog, MessageDialog, ChoiceDialog, PickDialog, FormDialog, MultiPickDia
 }
 
 .dialog.huge {
-    width: 110;
+    width: 120;
+    max-width: 98%;
     height: 90%;
 }
 

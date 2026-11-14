@@ -138,7 +138,20 @@ class TestSingleRuns:
         assert len(maintenance.list_runs(conn, "a")) == 3
         assert [r["id"] for r in maintenance.list_runs(conn, "a", "J1", limit=1)] == [second]
         assert set(maintenance.list_runs(conn, "a")[0]) == {
-            "id", "job_name", "target_label", "status", "started_at", "runtime_seconds", "bytes_processed"}
+            "id", "job_name", "target_label", "status", "started_at", "runtime_seconds", "bytes_processed", "message"}
+
+    def test_message_prefers_the_closing_event_like_the_job_page(self, conn):
+        done = add_run(conn, with_event=False)
+        for kind, text in (("heartbeat", "Starting"), ("backup_complete", "All done"), ("heartbeat", "Verify passed")):
+            conn.execute("INSERT INTO events (run_pk, event_type, message, timestamp, created_at) VALUES (?, ?, ?, 1, 1)",
+                         (done, kind, text))
+        running = add_run(conn, with_event=False)
+        for text in ("Starting", "Halfway"):
+            conn.execute("INSERT INTO events (run_pk, event_type, message, timestamp, created_at) "
+                         "VALUES (?, 'heartbeat', ?, 1, 1)", (running, text))
+        bare = add_run(conn, with_event=False)
+        messages = {r["id"]: r["message"] for r in maintenance.list_runs(conn, "a")}
+        assert messages == {done: "All done", running: "Halfway", bare: None}
 
     def test_delete_by_id_removes_only_those_runs_and_their_events(self, conn):
         keep = add_run(conn)
@@ -341,6 +354,7 @@ class TestCli:
         assert code == 0
         lines = out.strip().splitlines()
         assert [line.split("\t")[0] for line in lines] == [str(second), str(first)]
+        assert all(line.split("\t")[-1] == "-" or line.split("\t")[-1] == "" for line in lines)
         assert "no runs found" in run_cli(capsys, "runs", "list", "--agent", "ghost")[1]
 
     def test_runs_delete_by_id_needs_confirmation(self, home, capsys):

@@ -691,7 +691,7 @@ class TestDatabase:
         async def scenario(app, pilot):
             await self._open_run_picker(app, pilot)
             rows = table_rows(app, "rows")
-            assert [r[1][:4] for r in rows] == ["2023"] * 3 and [int(r[-1]) for r in rows] == [ids[2], ids[1], ids[0]]
+            assert [r[1][:4] for r in rows] == ["2023"] * 3 and [int(r[-2]) for r in rows] == [ids[2], ids[1], ids[0]]
             assert app.screen.query_one("#ok", Button).disabled is True
             await pilot.press("space")                          # newest run
             await pilot.press("down", "down", "space")          # oldest run
@@ -751,6 +751,30 @@ class TestDatabase:
 
         drive(scenario)
         assert count_runs() == 1
+
+    def test_each_run_shows_its_message_to_help_identify_it(self, home):
+        db.init_db()
+        conn = db.connect()
+        done = add_run_id(conn, "a", "J1", started=300)
+        failed = add_run_id(conn, "a", "J1", started=200)
+        silent = add_run_id(conn, "a", "J1", started=100)
+        events = [(done, "heartbeat", "Starting"), (done, "backup_complete", "Backup complete (snapshot 1a2b3c4d)"),
+                  (failed, "error", "[red]disk\nfull[/red] " + "x" * 120)]
+        for run, kind, text in events:
+            conn.execute("INSERT INTO events (run_pk, event_type, message, timestamp, created_at) VALUES (?, ?, ?, 1, 1)",
+                         (run, kind, text))
+        conn.close()
+
+        async def scenario(app, pilot):
+            await self._open_run_picker(app, pilot)
+            rows = {int(r[-2]): r[-1] for r in table_rows(app, "rows")}
+            assert rows[done] == "Backup complete (snapshot 1a2b3c4d)"
+            assert rows[failed].startswith("[red]disk full[/red] xxx") and rows[failed].endswith("\u2026")
+            assert len(rows[failed]) == 60
+            assert rows[silent] == "-"
+            assert "Message" in [str(c.label) for c in app.screen.query_one("#rows", DataTable).columns.values()]
+
+        drive(scenario)
 
     def test_run_labels_are_shown_literally(self, home):
         db.init_db()

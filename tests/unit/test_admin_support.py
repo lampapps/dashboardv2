@@ -245,6 +245,13 @@ class TestService:
 
 
 class TestSupport:
+    def test_one_line_flattens_truncates_and_marks_empty_text(self):
+        assert util.one_line(None) == "-" and util.one_line("  \n ") == "-"
+        assert util.one_line("disk\n  full\tbadly") == "disk full badly"
+        cut = util.one_line("x" * 100, limit=10)
+        assert len(cut) == 10 and cut.endswith("\u2026")
+        assert util.one_line("y" * 10, limit=10) == "y" * 10
+
     def test_ago(self):
         assert util.ago(None) == "-"
         assert util.ago(990, now=1000) == "10 s ago"

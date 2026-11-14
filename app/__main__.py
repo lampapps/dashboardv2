@@ -228,7 +228,8 @@ def _cmd_runs_list(args: argparse.Namespace) -> int:
     for run in runs:
         started = datetime.fromtimestamp(run["started_at"]).strftime("%Y-%m-%d %H:%M:%S")
         runtime = "-" if run["runtime_seconds"] is None else f"{run['runtime_seconds']:.0f}s"
-        print(f"{run['id']}\t{started}\t{run['status']}\t{run['job_name']}\t{run['target_label'] or '-'}\t{runtime}")
+        print(f"{run['id']}\t{started}\t{run['status']}\t{run['job_name']}\t{run['target_label'] or '-'}\t{runtime}\t"
+              f"{' '.join((run['message'] or '-').split())}")
     if not runs:
         print("no runs found")
     return 0
