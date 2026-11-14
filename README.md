@@ -7,9 +7,14 @@ v2 replaces the legacy dashboard (`../dashboard`, "v1"). The v1 agent endpoints 
 - The UI has no login and cannot change anything. The only writes are agent posts, authenticated with an API key.
 - All configuration is YAML plus `.env` for secrets. There are no settings pages.
 
-## Quick start
+## Requirements
 
-Needs Linux with systemd, Python 3.11 or newer and `python3-venv`. Do these steps as the user that will run the service, in the install directory.
+- Linux with systemd
+- Python 3.11 or newer with `python3-venv`
+
+## Install
+
+Do these steps as the user that will run the service, in the install directory.
 
 1. **Install.**
 
@@ -46,20 +51,9 @@ Needs Linux with systemd, Python 3.11 or newer and `python3-venv`. Do these step
 
 7. **Check it.** Open `http://<this host>:5002/` and `/healthz`. In the console, tab `5` Service shows the units and follows their journal, and tab `1` shows each agent's last contact once it reports.
 
-To try the dashboard before installing services, run `.venv/bin/python -m app web --dev` (http://localhost:5002/).
+To try the dashboard before installing services, run `.venv/bin/python -m app web --dev` (<http://localhost:5002/>).
 
-## Pages
-
-| Page | What it shows |
-| --- | --- |
-| Overview (`/`) | Metrics, Job Activity chart, jobs table (host, job, last, next and previous run; sort or group by host), storage over time (the drives and S3 buckets set in `config.yaml`), status badges |
-| Agents (`/agents`) | One card per agent, grouped by host: up/down history, uptime, read-only configuration |
-| Agent (`/agents/<name>`) | That agent's jobs, activity and history |
-| Job (`/agents/<name>/job?name=<job>`) | Run history with filters and paging, duration and size trend, a run's events |
-
-Light and dark themes follow the toggle in the top bar. `/healthz` returns `{"status": "ok", ...}` for monitors.
-
-## Service
+### Services
 
 `sudo deploy/install.sh` installs units named `jabs-dashboard-v2` (`--name` changes it, for example `jabs-dashboard` at cutover from v1) and `<name>-tick.service` / `.timer`. `deploy/install.sh --render-only DIR` previews the unit files without touching the system. Logs go to the journal; there are no log files.
 
@@ -82,7 +76,20 @@ After updating the code, run `./setup.sh` again (it only fills in what is missin
 
 Check the files with `python -m app config` or the console's Files tab. An agent is identified by its key, so renaming its entry keeps the key working, but its history (stored under the name) starts again under the new name. If `agents.yaml` becomes invalid the dashboard logs why and keeps the last good copy while running; with none it rejects every key.
 
-## Command line
+## Usage
+
+### Web pages
+
+| Page | What it shows |
+| --- | --- |
+| Overview (`/`) | Metrics, Job Activity chart, jobs table (host, job, last, next and previous run; sort or group by host), storage over time (the drives and S3 buckets set in `config.yaml`), status badges |
+| Agents (`/agents`) | One card per agent, grouped by host: up/down history, uptime, read-only configuration |
+| Agent (`/agents/<name>`) | That agent's jobs, activity and history |
+| Job (`/agents/<name>/job?name=<job>`) | Run history with filters and paging, duration and size trend, a run's events |
+
+Light and dark themes follow the toggle in the top bar. `/healthz` returns `{"status": "ok", ...}` for monitors.
+
+### Command line
 
 Run as `.venv/bin/python -m app <command>`. The [admin console](#admin-console) can do everything below; destructive commands here need `--yes`.
 
@@ -110,7 +117,7 @@ Run as `.venv/bin/python -m app <command>`. The [admin console](#admin-console) 
 | `storage purge [--source S] [--name N] --yes` | Delete stored storage samples, all or for one source or name |
 | `reset --yes` | Delete the database and all history |
 
-## Admin console
+### Admin console
 
 `.venv/bin/python -m app admin` opens a full-screen console for the person administering the dashboard: everything the command line does, and nothing the web UI already shows. Switch tabs with `1` to `6` or the mouse; the footer lists the keys for the current tab; `r` refreshes and `q` quits.
 
@@ -146,12 +153,14 @@ Stored storage samples count as contact, but the Overview charts only the drives
 
 **Up or down.** Any authenticated post counts as contact, including a bare heartbeat. With no contact for its `grace_minutes` an agent is logged `down`; the next contact logs it `up`. If the dashboard itself was not running, the gap is shown as "no data" and agents get a fresh grace period.
 
-## Email and periodic tasks
+## Email alerts
 
 Set `email.smtp_server` and `email.to_addrs` in `config.yaml` and the login in `.env`, then send a test (console: Diagnostics, or `python -m app testmail`). Port 465 uses implicit TLS; otherwise `use_tls` selects STARTTLS; without credentials mail is sent unauthenticated (a LAN relay).
 
 - **Offline alert** when an agent is logged `down`, repeated per `max_alerts` and `repeat_interval_minutes`, with a recovery mail after the first contact. `offline_alerts: false` on an agent in `agents.yaml` opts out.
 - **Digest** on the cron `email.digest.schedule`: finished runs, failed and stopped runs with their errors, and agent outages. Skipped when nothing happened.
+
+### Periodic tasks
 
 The timer runs `python -m app tick` every 5 minutes: daily rollup, agent status changes, alerts, digest, drive and S3 sampling, and deleting runs and events older than `retention.runs_days` (their per-day counts stay for `rollup_days`) and old status and storage data. A failing task is logged and does not stop the others.
 
