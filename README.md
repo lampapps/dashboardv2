@@ -84,7 +84,7 @@ Check the files with `python -m app config` or the console's Files tab. An agent
 
 ## Command line
 
-Run as `.venv/bin/python -m app <command>`. The [admin console](#admin-console) can do everything below except serve the web UI; destructive commands here need `--yes`.
+Run as `.venv/bin/python -m app <command>`. The [admin console](#admin-console) can do everything below; destructive commands here need `--yes`.
 
 | Command | Purpose |
 | --- | --- |
@@ -158,11 +158,11 @@ The timer runs `python -m app tick` every 5 minutes: daily rollup, agent status 
 ## Development
 
 ```bash
-./setup.sh --dev
+./setup.sh --dev      # also installs the test dependencies
 .venv/bin/python -m pytest -q
 ```
 
-- `tests/unit`: fast, isolated tests.
+- `tests/unit`: isolated tests, including the console (about a minute).
 - `tests/contract`: a black-box agent-API suite run against throwaway copies of v1 and v2 (`JABS_CONTRACT_BACKENDS=v1,v2`, default both). A test marked `v1_bug` is an expected failure on v1 and must pass on v2.
 - `tests/js`: `node --test` for the pure helpers in `static/js/ui.js`; pytest runs them when `node` is installed.
 
