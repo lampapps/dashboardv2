@@ -26,6 +26,7 @@ Replacement for the legacy dashboard (`../dashboard`, "v1"). Read-only web UI pl
 - Narrow exceptions only; a broad `except Exception` needs `# pylint: disable=broad-except` and a reason. No `sys.exit()` outside `__main__`.
 - Logging goes to stderr (journald); do not add log files. Level is DEBUG when `ENV_MODE=development`.
 - Do not add dependencies without asking. Secrets only via `.env`.
+- The app's version is the `MAJOR.MINOR.PATCH` in the root `VERSION` file (read by `settings.py`); never write it anywhere else. Every JABS component follows this.
 
 ## Testing
 
