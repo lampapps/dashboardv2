@@ -49,7 +49,6 @@ def build(conn: sqlite3.Connection, cfg: Config, configured: list, now: float, d
     rows = jobs.job_rollups(conn, tz, now, hosts)
     agents = _agents(conn, configured, now, hosts)
 
-    day = _finished_counts(conn, now - DAY_S)
     week = _finished_counts(conn, now - 7 * DAY_S)
     week_ok = week["success"] + week["purged"]
     judged = week_ok + week["failed"]
@@ -62,8 +61,8 @@ def build(conn: sqlite3.Connection, cfg: Config, configured: list, now: float, d
             "agents_total": sum(1 for a in agents if a["status"] != "disabled"),
             "agents_up": sum(1 for a in agents if a["status"] == "up"),
             "running": running,
-            "success_24h": day["success"] + day["purged"],
-            "failed_24h": day["failed"],
+            "success_7d": week_ok,
+            "failed_7d": week["failed"],
             "jobs_total": len(rows),
             "jobs_failing": sum(1 for r in rows if activity.bucket(r["last_status"]) == "failed"),
             "success_rate_7d": round(week_ok / judged, 4) if judged else None,

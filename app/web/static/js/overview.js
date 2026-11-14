@@ -46,8 +46,8 @@ function renderCards(stats) {
     stats.agents_total === 0 ? "none registered" : down ? `${down} not reporting` : "all reporting",
     stats.agents_total === 0 ? "" : down ? "warn" : "ok");
   setCard("running", String(stats.running), stats.running ? "in progress" : "idle", "");
-  setCard("success", String(stats.success_24h), null, "");
-  setCard("failed", String(stats.failed_24h), null, stats.failed_24h ? "crit" : "");
+  setCard("success", String(stats.success_7d), null, "");
+  setCard("failed", String(stats.failed_7d), null, stats.failed_7d ? "crit" : "");
   setCard("failing", String(stats.jobs_failing), `of ${stats.jobs_total} jobs`, stats.jobs_failing ? "crit" : stats.jobs_total ? "ok" : "");
   setCard("rate", fmtPercent(stats.success_rate_7d), null, "");
 }

@@ -146,12 +146,13 @@ class TestOverviewPayload:
         add_run(conn, job="bad", status="failed", completed=NOW - 100)
         add_run(conn, job="go", status="running")
         add_run(conn, job="old", completed=NOW - 3 * 86400, started=NOW - 3 * 86400 - 5)
+        add_run(conn, job="ancient", completed=NOW - 10 * 86400, started=NOW - 10 * 86400 - 5)
 
         data = overview.build(conn, self.cfg(), self.agents(), NOW, 7)
         stats = data["stats"]
         assert (stats["agents_total"], stats["agents_up"]) == (2, 1)
-        assert (stats["running"], stats["success_24h"], stats["failed_24h"]) == (1, 1, 1)
-        assert (stats["jobs_total"], stats["jobs_failing"]) == (4, 1)
+        assert (stats["running"], stats["success_7d"], stats["failed_7d"]) == (1, 2, 1)
+        assert (stats["jobs_total"], stats["jobs_failing"]) == (5, 1)
         assert stats["success_rate_7d"] == round(2 / 3, 4)
         assert {a["name"]: a["status"] for a in data["agents"]} == {"up1": "up", "down1": "down", "off": "disabled"}
 
@@ -160,7 +161,7 @@ class TestOverviewPayload:
         add_run(conn, job="b", status="purged", completed=NOW - 100)
         add_run(conn, job="c", status="failed", completed=NOW - 100)
         stats = overview.build(conn, self.cfg(), [], NOW, 7)["stats"]
-        assert (stats["success_24h"], stats["success_rate_7d"]) == (2, round(2 / 3, 4))
+        assert (stats["success_7d"], stats["success_rate_7d"]) == (2, round(2 / 3, 4))
         assert overview.build(conn, self.cfg(), [], NOW, 7)["activity"]["series"]["purged"][-1] == 1
 
     def test_rate_is_none_without_finished_runs(self, conn):
