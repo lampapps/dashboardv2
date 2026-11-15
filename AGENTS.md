@@ -5,7 +5,7 @@ Replacement for the legacy dashboard (`../dashboard`, "v1"). Read-only web UI pl
 ## Rules specific to v2
 
 - The UI never changes state and has no login. The only writes are agent ingest (API key in `X-API-Key`). All configuration is YAML (`config/config.yaml`, `config/agents.yaml`) plus `.env` for secrets; do not add UI settings or admin endpoints.
-- Agent API contract: the v1 endpoints `/api/monitoring/events`, `/api/monitoring/target-purged` and `/api/heartbeat` must behave exactly as v1 so existing agents work unchanged (see `../dashboard/AGENTS_API_GUIDE.md`). New agent features are additive endpoints under `/api/v2/`, opt-in per agent (so far: `POST /api/v2/storage` with `{"samples": [{name, kind: local|cloud|repo, used_bytes, total_bytes?, series?, timestamp?}]}`).
+- Agent API contract: the v1 endpoints `/api/monitoring/events`, `/api/monitoring/target-purged` and `/api/heartbeat` must behave exactly as v1 so existing agents work unchanged (see `docs/AGENTS_API_GUIDE.md`, the reference for every agent client). New agent features are additive endpoints under `/api/v2/`, opt-in per agent (so far: `POST /api/v2/storage` with `{"samples": [{name, kind: local|cloud|repo, used_bytes, total_bytes?, series?, timestamp?}]}`).
 - Agent API keys are stored only as SHA-256 hashes in `agents.yaml`; never log or return a key or hash.
 - Treat agent-supplied text (messages, log lines, labels) as untrusted: render with `textContent`, cap sizes.
 
@@ -34,3 +34,36 @@ Replacement for the legacy dashboard (`../dashboard`, "v1"). Read-only web UI pl
 - `@pytest.mark.v1_bug(reason)` marks behavior v1 gets wrong; it is a strict xfail on v1 and must pass on v2.
 - `tests/js` holds Node's built-in `node --test` tests for the pure helpers in `static/js/ui.js` (pytest runs them when `node` is installed). Keep DOM-free logic in `ui.js` so it stays testable.
 - Add or update tests with every non-trivial change; run `.venv/bin/python -m pytest -q` before finishing.
+
+## JABS-wide conventions
+
+These apply to every JABS component: this dashboard, `snapshot_agent`, `local_sync_agent`, `nas_sync_agent` and `dns_backup_agent`. Each is its own repository next to this one, with its own README.md, LICENSE.md, `.gitignore` and `.env` (if needed). Agents that have no AGENTS.md of their own point here. The sections above are specific to the dashboard.
+
+- **Purpose.** A home-lab LAN: unattended agents (backups, syncs, imaging) report to this dashboard, which shows them and emails a digest and offline alerts. Personal use, in active development.
+- **API.** Agents talk to the dashboard only through [docs/AGENTS_API_GUIDE.md](docs/AGENTS_API_GUIDE.md); read it before writing or changing any client. Changing an endpoint can break agents that are not under development at the moment, so consider all of them first.
+- **Dashboard is optional for agents.** An agent works without it; a dashboard or email failure is logged and never changes a job's result.
+- **Secrets and config.** Secrets only in the component's own `.env`, never hardcoded. Non-secret settings (jobs, schedules, paths) in YAML under `config/` with an example template checked in beside the real file.
+- **Version.** One `VERSION` file at the root of each component holds `MAJOR.MINOR.PATCH`; nothing else declares it.
+- **Python agents.** PEP8, type hints on signatures, plain dicts for config and rows (no ORM or dataclasses for them), narrow `except` clauses, no new dependencies without asking. Reuse each component's own logger setup; never `print()` for anything but one-off CLI output.
+- **Bash agents** (`nas_sync_agent`, `dns_backup_agent`): `set -uo pipefail`, report to the dashboard and send email through their `jabs_client.py` and `emailer.py` (stdlib Python), and wrap those calls so a failure cannot abort the job.
+- **Launcher scripts.** Components that have one (for example `local_sync_agent/jabs-agent.sh`) implement `setup`, `logs`, `reset` and `help`; `help` prints copy-paste commands built from the real paths of the current host. Use that script's prompts, colors and help layout as the style guide.
+- **Tests.** `snapshot_agent` and this dashboard use pytest; `local_sync_agent`, `nas_sync_agent` and `dns_backup_agent` use stdlib `unittest` (`python3 -m unittest discover -s tests`). Add or update tests with every non-trivial change.
+
+### README layout
+
+Every component's README.md uses the same H2 headings in this order (loosely following the Standard Readme spec). Omit a section that does not apply; do not rename it. Component-specific topics go under `Usage` or `How it works` as H3.
+
+1. `# Name`, then a one-paragraph description and short bullets (standalone or not, scheduling, no GUI, etc.). No heading for this part.
+2. `## Requirements`
+3. `## Install`: copy-paste steps; scheduling/service install as an H3.
+4. `## Configuration`: `.env` keys and config files.
+5. `## Usage`: commands, scheduling, admin console, restore (H3s).
+6. `## How it works`: design, file layout, integrity checks.
+7. `## Dashboard integration (optional)` for agents; `## Agent API` for the dashboard.
+8. `## Email alerts`
+9. `## Logs and troubleshooting`
+10. `## Security`
+11. `## Development`: tests and a link to AGENTS.md.
+12. `## License`
+
+Fenced blocks need a language, tables use `| --- |` separators, and the README must pass markdownlint with this repo's `.markdownlint.json` (`MD013` off, `MD024` siblings only).

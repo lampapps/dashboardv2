@@ -1,7 +1,7 @@
 """Agent event ingest: validate payloads and apply them to the database.
 
 Behavior matches the v1 dashboard's /api/monitoring endpoints so existing agents work unchanged
-(see ../dashboard/AGENTS_API_GUIDE.md); the contract tests in tests/contract enforce this.
+(see docs/AGENTS_API_GUIDE.md); the contract tests in tests/contract enforce this.
 """
 
 import sqlite3

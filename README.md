@@ -134,7 +134,7 @@ Run it as the user that owns the install. It refuses to start as root when the i
 
 ## Agent API
 
-An agent sends its key in the `X-API-Key` header. The v1 endpoints, documented in [`../dashboard/AGENTS_API_GUIDE.md`](../dashboard/AGENTS_API_GUIDE.md), behave exactly as in v1:
+An agent sends its key in the `X-API-Key` header. The v1 endpoints, documented in the [Agent API guide](docs/AGENTS_API_GUIDE.md), behave exactly as in v1:
 
 - `POST /api/monitoring/events` (job events, and heartbeats when `target_id` is omitted; accepts an optional `hostname`)
 - `POST /api/monitoring/target-purged`
