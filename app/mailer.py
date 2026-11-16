@@ -1,7 +1,6 @@
 """Outgoing email over SMTP. Failures are logged and reported as False, never raised."""
 
 import logging
-import os
 import smtplib
 import ssl
 from email.message import EmailMessage
@@ -39,11 +38,10 @@ def send(email: EmailConfig, subject: str, text: str, html: str) -> bool:
     if not is_configured(email):
         logger.debug("email is not configured (smtp_server and to_addrs); not sending '%s'", subject)
         return False
-    user = os.environ.get("JABS_SMTP_USER", "")
-    password = os.environ.get("JABS_SMTP_PASS", "")
+    user, password = settings.smtp_login()
     sender = email.from_addr or user
     if not sender:
-        logger.error("no sender address: set email.from_addr or JABS_SMTP_USER")
+        logger.error("no sender address: set email.from_addr or JABS_SMTP_USERNAME")
         return False
     if settings.env_mode() == "development":
         subject = f"[DEV] {subject}"
@@ -76,6 +74,6 @@ def send(email: EmailConfig, subject: str, text: str, html: str) -> bool:
 
 def smtp_login_hint(email: EmailConfig) -> Optional[str]:
     """A warning for the test command when credentials are missing, else None."""
-    if email.smtp_server and not (os.environ.get("JABS_SMTP_USER") and os.environ.get("JABS_SMTP_PASS")):
-        return "JABS_SMTP_USER / JABS_SMTP_PASS are not set; sending without logging in"
+    if email.smtp_server and not all(settings.smtp_login()):
+        return "JABS_SMTP_USERNAME / JABS_SMTP_PASSWORD are not set; sending without logging in"
     return None

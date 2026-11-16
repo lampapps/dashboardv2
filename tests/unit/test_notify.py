@@ -127,7 +127,7 @@ def smtp(monkeypatch):
     log: list = []
     monkeypatch.setattr(mailer.smtplib, "SMTP", FakeSMTP(log))
     monkeypatch.setattr(mailer.smtplib, "SMTP_SSL", FakeSMTP(log))
-    for name in ("JABS_SMTP_USER", "JABS_SMTP_PASS", "ENV_MODE"):
+    for name in ("JABS_SMTP_USERNAME", "JABS_SMTP_PASSWORD", "JABS_SMTP_USER", "JABS_SMTP_PASS", "ENV_MODE"):
         monkeypatch.delenv(name, raising=False)
     return log
 
@@ -137,8 +137,8 @@ class TestMailer:
         return mailer.send(make_config(email).email, subject, "plain body", "<p>html body</p>")
 
     def test_sends_multipart_with_tls_and_login(self, smtp, monkeypatch):
-        monkeypatch.setenv("JABS_SMTP_USER", "me@example.com")
-        monkeypatch.setenv("JABS_SMTP_PASS", "secret")
+        monkeypatch.setenv("JABS_SMTP_USERNAME", "me@example.com")
+        monkeypatch.setenv("JABS_SMTP_PASSWORD", "secret")
         assert self.send({"smtp_port": 587}) is True
         kinds = [entry[0] for entry in smtp]
         assert kinds == ["connect", "starttls", "login", "send"]
@@ -148,10 +148,24 @@ class TestMailer:
         assert "html body" in message.get_body(("html",)).get_content()
 
     def test_from_addr_wins_over_login_name(self, smtp, monkeypatch):
-        monkeypatch.setenv("JABS_SMTP_USER", "login@example.com")
-        monkeypatch.setenv("JABS_SMTP_PASS", "x")
+        monkeypatch.setenv("JABS_SMTP_USERNAME", "login@example.com")
+        monkeypatch.setenv("JABS_SMTP_PASSWORD", "x")
         self.send({"from_addr": "jabs@example.com"})
         assert smtp[-1][1]["From"] == "jabs@example.com"
+
+    def test_the_older_short_variable_names_still_log_in(self, smtp, monkeypatch):
+        monkeypatch.setenv("JABS_SMTP_USER", "old@example.com")
+        monkeypatch.setenv("JABS_SMTP_PASS", "oldpw")
+        assert self.send({"smtp_port": 587}) is True
+        assert [entry[0] for entry in smtp] == ["connect", "starttls", "login", "send"]
+        assert smtp[-1][1]["From"] == "old@example.com"
+
+    def test_the_new_names_win_over_the_old_ones(self, monkeypatch):
+        monkeypatch.setenv("JABS_SMTP_USER", "old")
+        monkeypatch.setenv("JABS_SMTP_PASS", "oldpw")
+        monkeypatch.setenv("JABS_SMTP_USERNAME", "new")
+        monkeypatch.setenv("JABS_SMTP_PASSWORD", "newpw")
+        assert settings.smtp_login() == ("new", "newpw")
 
     def test_port_465_uses_implicit_tls(self, smtp):
         assert self.send({"smtp_port": 465, "from_addr": "j@example.com"}) is True
@@ -189,10 +203,11 @@ class TestMailer:
         assert "<script>x</script>" in text  # the plain-text part is not HTML
 
     def test_login_hint(self, monkeypatch):
+        monkeypatch.delenv("JABS_SMTP_USERNAME", raising=False)
         monkeypatch.delenv("JABS_SMTP_USER", raising=False)
         assert "not set" in mailer.smtp_login_hint(make_config().email)
-        monkeypatch.setenv("JABS_SMTP_USER", "u")
-        monkeypatch.setenv("JABS_SMTP_PASS", "p")
+        monkeypatch.setenv("JABS_SMTP_USERNAME", "u")
+        monkeypatch.setenv("JABS_SMTP_PASSWORD", "p")
         assert mailer.smtp_login_hint(make_config().email) is None
 
 

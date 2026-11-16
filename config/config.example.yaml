@@ -36,7 +36,7 @@ storage:
 #      region: "us-east-1"
 
 email:
-  smtp_server: ""       # set to enable email; credentials: JABS_SMTP_USER / JABS_SMTP_PASS in .env
+  smtp_server: ""       # set to enable email; credentials: JABS_SMTP_USERNAME / JABS_SMTP_PASSWORD in .env
   smtp_port: 587
   use_tls: true
   from_addr: "name@example.com"

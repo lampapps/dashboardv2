@@ -13,6 +13,16 @@ from textual.widgets import Button, Checkbox, DataTable, Input, Label, OptionLis
 from textual.widgets.option_list import Option
 
 from .. import config, db
+from . import clipboard
+
+
+def _print_plain(text: str) -> None:
+    """Show text on the real terminal, where the terminal's own mouse selection and copy work."""
+    print(f"\n{text}\n")
+    try:
+        input("Select and copy it with your terminal, then press Enter to return to the console... ")
+    except EOFError:
+        pass
 
 
 class _Dialog(ModalScreen):
@@ -68,7 +78,7 @@ class ConfirmDialog(_Dialog):
 
 
 class MessageDialog(_Dialog):
-    """Read-only text (output, errors, a key shown once). `copy_text` adds a Copy button."""
+    """Read-only text (output, errors, a key shown once). `copy_text` adds Copy and Show in terminal buttons."""
 
     def __init__(self, title: str, body: str, copy_text: Optional[str] = None, error: bool = False):
         super().__init__()
@@ -82,6 +92,7 @@ class MessageDialog(_Dialog):
             with Horizontal(classes="buttons"):
                 if self._copy is not None:
                     yield Button("Copy", id="copy")
+                    yield Button("Show in terminal", id="plain")
                 yield Button("Close", id="close", variant="primary")
 
     def on_mount(self) -> None:
@@ -89,8 +100,19 @@ class MessageDialog(_Dialog):
 
     @on(Button.Pressed, "#copy")
     def _copy_pressed(self) -> None:
-        self.app.copy_to_clipboard(self._copy or "")
-        self.notify("Copied to the clipboard (if your terminal allows it)")
+        text = self._copy or ""
+        tool = clipboard.copy_with_tool(text)
+        self.app.copy_to_clipboard(text)  # also the terminal's own clipboard (OSC 52), which not every terminal has
+        if tool:
+            self.notify(f"Copied to the clipboard ({tool})")
+        else:
+            self.notify("Sent to the terminal's clipboard. If pasting gives nothing, use Show in terminal.",
+                        severity="warning", timeout=10)
+
+    @on(Button.Pressed, "#plain")
+    def _plain_pressed(self) -> None:
+        with self.app.suspend():
+            _print_plain(self._copy or "")
 
     @on(Button.Pressed, "#close")
     def _close(self) -> None:

@@ -11,7 +11,7 @@ The `/api/monitoring/*` and `/api/heartbeat` endpoints behave exactly as they di
 - Base URL: the agent must know the dashboard's base URL (for example `http://jabs-dashboard:5002`). The JABS agents read it from `JABS_DASHBOARD_URL` (`JABS_SERVER_URL` is a deprecated alias in the older agents).
 - Transport: HTTP or HTTPS, JSON request and response bodies, `Content-Type: application/json`.
 - Auth: an **API key**, sent on every request in the `X-API-Key` header.
-  1. An administrator registers each agent on the dashboard (`python -m app agent add NAME`, or the admin console's Agents tab). The key is shown once. The dashboard stores only its SHA-256 hash.
+  1. An administrator registers each agent on the dashboard (`.venv/bin/python -m app agent add NAME`, or the admin console's Agents tab). The key is shown once. The dashboard stores only its SHA-256 hash.
   2. The agent keeps the key (for example `JABS_AGENT_KEY` in its `.env`) and sends it as `X-API-Key: <key>`.
   3. The dashboard identifies the agent by the key alone. Several agents can run on one machine as long as each has its own key.
 
@@ -274,7 +274,7 @@ A health check for monitors such as Uptime Kuma. No key is needed. It returns `{
 
 ## Building a compatible agent client
 
-1. **Register the agent first** (`python -m app agent add NAME` or the admin console). There is no self-registration. Keep the key secret (for example `JABS_AGENT_KEY` in the agent's `.env`).
+1. **Register the agent first** (`.venv/bin/python -m app agent add NAME` or the admin console). There is no self-registration. Keep the key secret (for example `JABS_AGENT_KEY` in the agent's `.env`).
 2. Send the key as `X-API-Key: <key>` on every request, and the machine's name as `hostname`.
 3. Generate a `run_id` (a UUID) once per job execution and put it on every event of that run. If the agent reports more than one `target_id` per invocation, also generate one `job_run_id` per invocation and put it on every target's events.
 4. Send a start event with `event_type="heartbeat"`, `job_name`, `backup_type`, `target_id`, `target_label` and optionally `source`/`destination`. These are captured only when the run is created.

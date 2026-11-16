@@ -45,3 +45,10 @@ def load_env() -> None:
 def env_mode() -> str:
     """'development' or 'production' (default), from ENV_MODE."""
     return os.environ.get("ENV_MODE", "production")
+
+
+def smtp_login() -> tuple:
+    """(username, password) for the SMTP server. The older JABS_SMTP_USER / JABS_SMTP_PASS are still accepted."""
+    user = os.environ.get("JABS_SMTP_USERNAME") or os.environ.get("JABS_SMTP_USER") or ""
+    password = os.environ.get("JABS_SMTP_PASSWORD") or os.environ.get("JABS_SMTP_PASS") or ""
+    return user, password

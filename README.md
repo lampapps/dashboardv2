@@ -72,9 +72,9 @@ After updating the code, run `./setup.sh` again (it only fills in what is missin
 | --- | --- |
 | `config/config.yaml` | Timezone, server, status badges, storage drives and S3 buckets, email, retention. Every key is documented in `config.example.yaml`. Read at start-up, so restart the service after editing |
 | `config/agents.yaml` | The agent registry. Keys are stored only as SHA-256 hashes. Managed with the `agent` commands or the console; edits take effect without a restart |
-| `.env` | Secrets: `JABS_SMTP_USER`, `JABS_SMTP_PASS`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`. `ENV_MODE=development` raises logging to DEBUG and prefixes email subjects with `[DEV]` |
+| `.env` | Secrets: `JABS_SMTP_USERNAME`, `JABS_SMTP_PASSWORD`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`. `ENV_MODE=development` raises logging to DEBUG and prefixes email subjects with `[DEV]` |
 
-Check the files with `python -m app config` or the console's Files tab. An agent is identified by its key, so renaming its entry keeps the key working, but its history (stored under the name) starts again under the new name. If `agents.yaml` becomes invalid the dashboard logs why and keeps the last good copy while running; with none it rejects every key.
+Check the files with `.venv/bin/python -m app config` or the console's Files tab. An agent is identified by its key, so renaming its entry keeps the key working, but its history (stored under the name) starts again under the new name. If `agents.yaml` becomes invalid the dashboard logs why and keeps the last good copy while running; with none it rejects every key.
 
 ## Usage
 
@@ -155,7 +155,7 @@ Stored storage samples count as contact, but the Overview charts only the drives
 
 ## Email alerts
 
-Set `email.smtp_server` and `email.to_addrs` in `config.yaml` and the login in `.env`, then send a test (console: Diagnostics, or `python -m app testmail`). Port 465 uses implicit TLS; otherwise `use_tls` selects STARTTLS; without credentials mail is sent unauthenticated (a LAN relay).
+Set `email.smtp_server` and `email.to_addrs` in `config.yaml` and the login in `.env`, then send a test (console: Diagnostics, or `.venv/bin/python -m app testmail`). Port 465 uses implicit TLS; otherwise `use_tls` selects STARTTLS; without credentials mail is sent unauthenticated (a LAN relay).
 
 - **Offline alert** when an agent is logged `down`, repeated per `max_alerts` and `repeat_interval_minutes`, with a recovery mail after the first contact. `offline_alerts: false` on an agent in `agents.yaml` opts out.
 - **Digest** on the cron `email.digest.schedule`: finished runs, failed and stopped runs with their errors, and agent outages. Skipped when nothing happened.
