@@ -284,6 +284,16 @@ A health check for monitors such as Uptime Kuma. No key is needed. It returns `{
 8. Treat every request as fire-and-forget: log a network failure and carry on, never let it fail or delay the job. Use short timeouts and catch `requests.exceptions.RequestException`.
 9. If the agent deletes artifacts locally, report an `external_id` on each `backup_complete` event and call `/api/monitoring/target-purged` after each deletion. Do not try to delete dashboard records from the agent.
 
+## Versioning and compatibility
+
+The dashboard's `VERSION` (reported by `GET /api/heartbeat`) follows semantic versioning, and its MAJOR number is the API version:
+
+- **MAJOR:** may change or remove endpoints and fields, so agents may need updating.
+- **MINOR:** additive only: new endpoints, optional fields and opt-in features. Existing agents keep working.
+- **PATCH:** fixes.
+
+Agents are versioned independently, and each agent's README lists under Requirements the dashboard it works with. The dashboard is optional for agents, so an incompatible dashboard is a reason to update an agent, never a reason for a job to fail. Before dashboard 1.0.0 (the 0.x releases) nothing is promised.
+
 ## Reference implementation
 
 [snapshot_agent/app/dashboard.py](../../snapshot_agent/app/dashboard.py) is the reference client: events, heartbeats, `target-purged` (with `external_id` and the list of snapshots a prune removed) and `/api/v2/storage`. A smaller client for the v1 endpoints is [local_sync_agent/monitoring_client.py](../../local_sync_agent/monitoring_client.py), which provides `send_event()`, `send_sync_start()`, `send_sync_stage()`, `send_sync_complete()` and `send_scheduler_check()`.
