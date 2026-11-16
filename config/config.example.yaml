@@ -26,7 +26,8 @@ storage:
       label: "Root"
   # S3 buckets (needs AWS credentials in .env). Leave empty to disable.
   #   method: cloudwatch (default) = free daily size per storage class; needs cloudwatch:ListMetrics
-  #           and cloudwatch:GetMetricData. list = scans the bucket for sizes per top-level prefix
+  #           and cloudwatch:GetMetricData. 
+  #           list = scans the bucket for sizes per top-level prefix
   #           (needs s3:ListBucket; slower and billable).
   s3_buckets:
 #    - bucket: "example-bucket"
