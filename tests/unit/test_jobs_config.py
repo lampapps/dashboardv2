@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from app import agents_report, config, db, ingest
@@ -98,6 +100,34 @@ class TestSubmit:
         assert stored() == []
 
 
+class TestSchedules:
+    def reported(self):
+        conn = db.connect()
+        try:
+            return {r[0]: json.loads(r[1]) for r in conn.execute("SELECT job_name, schedules FROM job_config")}
+        finally:
+            conn.close()
+
+    def test_schedules_are_stored_with_their_enabled_state(self, client, key):
+        post(client, key, {"jobs": [
+            {"job_name": "a", "schedules": [{"cron": "0 2 * * *", "enabled": True}, {"cron": " 0 9 * * 1 "}]},
+            {"job_name": "b", "schedules": []}, {"job_name": "c"}]})
+        assert self.reported() == {"a": [{"cron": "0 2 * * *", "enabled": True}, {"cron": "0 9 * * 1", "enabled": False}],
+                                   "b": []}   # "c" did not say, so nothing is claimed about it
+
+    def test_each_report_replaces_the_last(self, client, key):
+        post(client, key, {"jobs": [{"job_name": "a", "schedules": [{"cron": "* * * * *", "enabled": True}]}]})
+        post(client, key, {"jobs": [{"job_name": "b", "schedules": []}]})
+        assert self.reported() == {"b": []}
+
+    @pytest.mark.parametrize("schedules", [
+        "daily", [{}], [{"cron": ""}], [{"cron": "* * * * *", "enabled": "maybe"}],
+        [{"cron": "* * * * *"}] * (ingest.MAX_SCHEDULES_PER_JOB + 1),
+    ])
+    def test_invalid_schedules_are_rejected(self, client, key, schedules):
+        assert post(client, key, {"jobs": [{"job_name": "a", "schedules": schedules}]}).status_code == 400
+
+
 class TestAgentCard:
     def card(self, conn):
         agent = AgentConfig(name="snap", key_hash="0" * 64)
@@ -120,7 +150,7 @@ class TestAgentCard:
         self.schedule(conn, "jim-home", "0 0 * * *")
         self.target(conn, "jim-home", "jim-home", "/home/jim", "s3:bucket/jim")
         assert self.card(conn)["jobs_config"] == [{
-            "job_name": "jim-home", "cron_schedule": "0 0 * * *",
+            "job_name": "jim-home", "cron_schedule": "0 0 * * *", "schedules": None,
             "targets": [{"name": "jim-home", "source": "/home/jim", "destination": "s3:bucket/jim"}]}]
 
     def test_a_job_known_by_only_one_source_still_appears(self, conn):
@@ -138,6 +168,14 @@ class TestAgentCard:
         jobs = self.card(conn)["jobs_config"]
         assert [j["job_name"] for j in jobs] == ["A-job", "b-job"]
         assert [t["name"] for t in jobs[0]["targets"]] == ["a", "z"]
+
+    def test_reported_schedules_carry_their_enabled_state(self, conn):
+        self.schedule(conn, "stale", "0 1 * * *")
+        conn.execute("INSERT INTO job_config VALUES ('snap', 'stale', '[]', 1)")
+        conn.execute("INSERT INTO job_config VALUES ('snap', 'off', '[{\"cron\": \"0 2 * * *\", \"enabled\": false}]', 1)")
+        jobs = {j["job_name"]: j for j in self.card(conn)["jobs_config"]}
+        assert jobs["off"]["schedules"] == [{"cron": "0 2 * * *", "enabled": False}]
+        assert jobs["stale"]["schedules"] == [] and jobs["stale"]["cron_schedule"] == "0 1 * * *"
 
     def test_an_agent_with_nothing_reported_has_no_jobs(self, conn):
         card = self.card(conn)

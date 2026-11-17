@@ -138,6 +138,17 @@ MIGRATIONS: list[list[str]] = [
             PRIMARY KEY (agent, job_name, target)
         )""",
     ],
+    [
+        # The job's schedules as the agent last reported them, enabled or not (JSON list of {cron, enabled});
+        # a row means the agent reported, so an empty list is "no schedules", not "unknown".
+        """CREATE TABLE job_config (
+            agent TEXT NOT NULL,
+            job_name TEXT NOT NULL,
+            schedules TEXT NOT NULL,
+            updated_at REAL NOT NULL,
+            PRIMARY KEY (agent, job_name)
+        )""",
+    ],
 ]
 
 

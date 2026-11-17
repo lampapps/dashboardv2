@@ -270,7 +270,7 @@ X-API-Key: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 ### 4. `POST /api/v2/jobs`
 
-Opt-in. Reports the jobs the agent has configured, with what each one reads and writes. The Agents page lists them in an agent's Configuration section, with the cron schedule that the agent sends in its heartbeats. Send it with every scheduler heartbeat: each report **replaces** the agent's previous one, so a job removed from the agent's config disappears. It also counts as contact for the agent.
+Opt-in. Reports the jobs the agent has configured, with what each one reads and writes. The Agents page lists them in an agent's Configuration section, with each job's schedules and whether each is enabled. Send it with every scheduler heartbeat: each report **replaces** the agent's previous one, so a job removed from the agent's config disappears. It also counts as contact for the agent.
 
 Never put credentials in `source` or `destination`; both are stored and shown as text.
 
@@ -287,6 +287,7 @@ Each job:
 | --- | --- | --- | --- |
 | `job_name` | string | **yes** | Same value as the `job_name` of its events; up to 200 characters. |
 | `targets` | array | no | Up to 200 targets. A job that copies one thing has one target; a sync job has one per source/destination pair. |
+| `schedules` | array | no | Up to 20 schedules the job has, **including disabled ones**, each `{"cron": "0 2 * * *", "enabled": true}` (`cron` 1 to 500 characters, `enabled` defaults to false). Omit it if the agent does not report them: the page then shows the cron from the job's heartbeats, which covers enabled schedules only. An empty list means the job has no schedules. |
 
 Each target:
 
@@ -313,7 +314,7 @@ X-API-Key: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 {
   "hostname": "backup-host",
   "jobs": [
-    {"job_name": "jim-home", "targets": [
+    {"job_name": "jim-home", "schedules": [{"cron": "0 0 * * *", "enabled": true}], "targets": [
       {"name": "jim-home", "source": "/home/jim", "destination": "s3:s3.amazonaws.com/bucket/jim"}]},
     {"job_name": "UNAS-KPF", "targets": [
       {"name": "backups", "source": "/mnt/nas-unas/backups", "destination": "nas2:jof"},

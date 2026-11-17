@@ -68,10 +68,18 @@ export function fmtPercent(fraction) {
   return fraction === null || fraction === undefined ? "–" : `${Math.round(fraction * 1000) / 10}%`;
 }
 
+// A job's schedules as the agent reports them, each marked enabled or disabled; an agent that does not
+// report them (`schedules` is null) falls back to what its heartbeats say, which only covers enabled ones.
+function scheduleText(job) {
+  if (!Array.isArray(job.schedules)) return job.cron_schedule || "–";
+  if (!job.schedules.length) return "none";
+  return job.schedules.map((s) => `${s.cron} (${s.enabled ? "enabled" : "disabled"})`).join("\n");
+}
+
 // Rows for one job on an agent card: its schedule, then each target's source and destination.
 // A job with several targets (a sync job's pairs) gets a heading row before each target.
 export function jobConfigRows(job) {
-  const rows = [{ label: "Schedule", text: job.cron_schedule || "–" }];
+  const rows = [{ label: "Schedule", text: scheduleText(job) }];
   const targets = job.targets && job.targets.length ? job.targets : [{ name: "", source: "", destination: "" }];
   for (const target of targets) {
     if (targets.length > 1) rows.push({ heading: target.name });

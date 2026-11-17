@@ -4,6 +4,7 @@ Behavior matches the v1 dashboard's /api/monitoring endpoints so existing agents
 (see docs/AGENTS_API_GUIDE.md); the contract tests in tests/contract enforce this.
 """
 
+import json
 import sqlite3
 from typing import Any, Optional, Union
 
@@ -45,11 +46,28 @@ class JobTarget(BaseModel):
         return value.strip()[:_TARGET_LIMITS[info.field_name]] if isinstance(value, str) else ""
 
 
+MAX_SCHEDULES_PER_JOB = 20
+
+
+class JobSchedule(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    cron: str = Field(min_length=1)
+    enabled: bool = False
+
+    @field_validator("cron", mode="before")
+    @classmethod
+    def _clean_cron(cls, value: Any) -> Any:
+        return value.strip()[:_STRING_LIMITS["cron_schedule"]] if isinstance(value, str) else value
+
+
 class JobConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     job_name: str = Field(min_length=1)
     targets: list[JobTarget] = Field(default_factory=list, max_length=MAX_TARGETS_PER_JOB)
+    # None: the agent does not say (it may be an older one); an empty list: the job has no schedules.
+    schedules: Optional[list[JobSchedule]] = Field(None, max_length=MAX_SCHEDULES_PER_JOB)
 
     @field_validator("job_name", mode="before")
     @classmethod
@@ -256,6 +274,11 @@ def record_jobs(conn: sqlite3.Connection, agent: str, p: JobsPayload, now: float
     with db.transaction(conn):
         touch_agent(conn, agent, now, p.hostname)
         conn.execute("DELETE FROM job_targets WHERE agent = ?", (agent,))
+        conn.execute("DELETE FROM job_config WHERE agent = ?", (agent,))
+        conn.executemany(
+            "INSERT OR REPLACE INTO job_config (agent, job_name, schedules, updated_at) VALUES (?, ?, ?, ?)",
+            [(agent, job.job_name, json.dumps([{"cron": s.cron, "enabled": s.enabled} for s in job.schedules]), now)
+             for job in p.jobs if job.schedules is not None])
         conn.executemany(
             "INSERT OR REPLACE INTO job_targets (agent, job_name, target, source, destination, updated_at) "
             "VALUES (?, ?, ?, ?, ?, ?)", rows)

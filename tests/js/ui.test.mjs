@@ -45,6 +45,16 @@ test("a job with several targets gets a heading per target, and missing data sho
     ["* * * * *", "–", "–"]);
 });
 
+test("each reported schedule is marked enabled or disabled", () => {
+  const text = (schedules, cron = null) => jobConfigRows({ job_name: "j", cron_schedule: cron, schedules, targets: [] })[0].text;
+  assert.equal(text([{ cron: "0 2 * * *", enabled: true }, { cron: "0 9 * * 1", enabled: false }]),
+    "0 2 * * * (enabled)\n0 9 * * 1 (disabled)");
+  assert.equal(text([{ cron: "0 2 * * *", enabled: false }], "0 2 * * *"), "0 2 * * * (disabled)");
+  assert.equal(text([], "0 2 * * *"), "none");   // the agent says it has none; a stale heartbeat cron is ignored
+  assert.equal(text(null, "0 2 * * *"), "0 2 * * *");   // an agent that does not report schedules
+  assert.equal(text(undefined), "–");
+});
+
 test("durations", () => {
   assert.equal(fmtDuration(5), "5 s");
   assert.equal(fmtDuration(125), "2 min 5 s");

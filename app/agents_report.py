@@ -1,5 +1,6 @@
 """Builds the Agents pages' payloads: status, up/down history and read-only configuration per agent."""
 
+import json
 import sqlite3
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -33,14 +34,22 @@ class _Context:
                                 "ORDER BY job_name, target"):
             self.targets.setdefault(row["agent"], {}).setdefault(row["job_name"], []).append(
                 {"name": row["target"], "source": row["source"], "destination": row["destination"]})
+        self.reported: dict = {}
+        for row in conn.execute("SELECT agent, job_name, schedules FROM job_config"):
+            self.reported.setdefault(row["agent"], {})[row["job_name"]] = json.loads(row["schedules"])
 
     def jobs_config(self, agent: str) -> list:
-        """Every job the agent has told us about, with its cron schedule and what it copies (either may be missing)."""
+        """Every job the agent has told us about: what it copies and its schedules.
+
+        `schedules` is the agent's own list with each one's enabled state, or None when the agent does not
+        report it (an older one); `cron_schedule` is what its heartbeats say, which covers enabled ones only.
+        """
         schedules = {s["job_name"]: s["cron_schedule"] for s in self.schedules.get(agent, [])}
         targets = self.targets.get(agent, {})
-        names = sorted(set(schedules) | set(targets), key=lambda name: (name.casefold(), name))
-        return [{"job_name": name, "cron_schedule": schedules.get(name), "targets": targets.get(name, [])}
-                for name in names]
+        reported = self.reported.get(agent, {})
+        names = sorted(set(schedules) | set(targets) | set(reported), key=lambda name: (name.casefold(), name))
+        return [{"job_name": name, "cron_schedule": schedules.get(name), "schedules": reported.get(name),
+                 "targets": targets.get(name, [])} for name in names]
 
 
 def _card(ctx: _Context, agent: AgentConfig, start: float) -> dict:
