@@ -122,7 +122,7 @@ def _cmd_agent_disable(args: argparse.Namespace) -> int:
 
 
 def _cmd_agent_usage(_args: argparse.Namespace) -> int:
-    print("usage: python -m app agent {add,list,set,rekey,enable,disable,remove} ...", file=sys.stderr)
+    print("usage: python -m app agent {add,list,set,rename,rekey,enable,disable,remove} ...", file=sys.stderr)
     return 2
 
 
@@ -143,6 +143,14 @@ def _cmd_agent_set(args: argparse.Namespace) -> int:
         return 2
     config.update_agent(args.name, **changes)
     print(f"Agent '{args.name}' updated: {', '.join(sorted(changes))}")
+    return 0
+
+
+def _cmd_agent_rename(args: argparse.Namespace) -> int:
+    changed = maintenance.rename_agent(args.name, args.new_name)
+    print(f"Agent '{args.name}' renamed to '{args.new_name}'; its key, settings and history carry over")
+    if changed:
+        print("rows renamed: " + ", ".join(f"{table} {count}" for table, count in changed.items()))
     return 0
 
 
@@ -346,6 +354,11 @@ def build_parser() -> argparse.ArgumentParser:
     agent_set.add_argument("--allowed-ip", help="only accept the key from this address (empty: any address)")
     agent_set.add_argument("--alerts", action=argparse.BooleanOptionalAction, help="send offline alert emails")
     agent_set.set_defaults(func=_cmd_agent_set)
+    agent_rename = agent_sub.add_parser(
+        "rename", help="change an agent's name, keeping its key, settings and stored history")
+    agent_rename.add_argument("name")
+    agent_rename.add_argument("new_name")
+    agent_rename.set_defaults(func=_cmd_agent_rename)
     agent_remove = agent_sub.add_parser("remove", help="delete an agent from the registry")
     agent_remove.add_argument("name")
     agent_remove.add_argument("--purge-history", action="store_true", help="also delete its stored runs, status and samples")

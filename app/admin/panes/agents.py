@@ -46,11 +46,12 @@ class AgentsPane(Pane):
     TAB_TITLE = "1 Agents"
     ACTIONS = {
         "agents.list": "reload", "agents.add": "do_add", "agents.set": "do_edit", "agents.rekey": "do_rekey",
+        "agents.rename": "do_rename",
         "agents.enable": "do_toggle", "agents.disable": "do_toggle", "agents.remove": "do_remove",
     }
     BINDINGS = [
         Binding("a", "add", "Add"), Binding("e", "edit", "Edit"), Binding("t", "toggle", "Enable/disable"),
-        Binding("k", "rekey", "New key"), Binding("x", "remove", "Remove"),
+        Binding("k", "rekey", "New key"), Binding("n", "rename", "Rename"), Binding("x", "remove", "Remove"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -61,6 +62,7 @@ class AgentsPane(Pane):
             yield Button("Edit", id="edit")
             yield Button("Enable / disable", id="toggle")
             yield Button("New key", id="rekey")
+            yield Button("Rename", id="rename")
             yield Button("Remove", id="remove", variant="error")
 
     def on_mount(self) -> None:
@@ -184,6 +186,24 @@ class AgentsPane(Pane):
         body, copy = key_text(agent.name, key)
         await self.admin.show("New API key", body, copy_text=copy)
 
+    async def do_rename(self) -> None:
+        agent = await self._agent()
+        if agent is None:
+            return
+        fields = [{"key": "name", "label": "New name", "kind": "text", "value": agent.name,
+                   "help": "Letters, digits, . _ and -. The key, settings and stored history move to the new name; "
+                           "the agent needs no change."}]
+
+        def submit(values: dict) -> str:
+            maintenance.rename_agent(agent.name, values["name"])
+            return values["name"]
+
+        new_name = await self.admin.form(f"Rename agent {agent.name}", fields, submit, "Rename")
+        if new_name is None:
+            return
+        audit("agent renamed", name=agent.name, new_name=new_name)
+        await self.reload()
+
     async def do_remove(self) -> None:
         agent = await self._agent()
         if agent is None:
@@ -216,6 +236,9 @@ class AgentsPane(Pane):
 
     def action_rekey(self) -> None:
         self.admin.spawn(self.do_rekey)
+
+    def action_rename(self) -> None:
+        self.admin.spawn(self.do_rename)
 
     def action_remove(self) -> None:
         self.admin.spawn(self.do_remove)

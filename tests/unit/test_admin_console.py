@@ -211,6 +211,43 @@ class TestAgents:
 
         drive(scenario)
 
+    def test_rename_moves_the_agent_and_its_history(self, home):
+        key = config.add_agent("nas1")
+        db.init_db()
+        conn = db.connect()
+        conn.execute("INSERT INTO runs (agent, job_name, status, started_at, updated_at) VALUES ('nas1', 'J', 'success', 1, 1)")
+        conn.close()
+
+        async def scenario(app, pilot):
+            await wait_for(pilot, lambda: table_rows(app, "agents-table"))
+            app.query_one("#rename", Button).press()
+            await wait_dialog(pilot, app, "Rename agent nas1")
+            fill(app, name="nas-one")
+            await press(pilot, app, "save")
+            await wait_for(pilot, lambda: [a.name for a in config.load_agents()] == ["nas-one"])
+            assert config.load_agents()[0].key_hash == config.hash_key(key)
+            conn = db.connect()
+            assert conn.execute("SELECT agent FROM runs").fetchone()[0] == "nas-one"
+            conn.close()
+            await wait_for(pilot, lambda: table_rows(app, "agents-table")[0][0] == "nas-one")
+
+        drive(scenario)
+
+    def test_rename_to_a_taken_name_is_refused_in_the_form(self, home):
+        config.add_agent("a")
+        config.add_agent("b")
+
+        async def scenario(app, pilot):
+            await wait_for(pilot, lambda: len(table_rows(app, "agents-table")) == 2)
+            app.query_one("#rename", Button).press()
+            await wait_dialog(pilot, app, "Rename agent a")
+            fill(app, name="b")
+            await press(pilot, app, "save")
+            await wait_for(pilot, lambda: "already exists" in str(app.screen.query_one("#error", Static).render()))
+
+        drive(scenario)
+        assert [a.name for a in config.load_agents()] == ["a", "b"]
+
     def test_nothing_selected_explains_itself(self, home):
         async def scenario(app, pilot):
             app.query_one("#edit", Button).press()

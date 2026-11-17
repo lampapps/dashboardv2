@@ -372,6 +372,26 @@ def update_agent(name: str, path: Optional[PathLike] = None, **changes: object) 
     return _edit_agents(path, update)
 
 
+def rename_agent(name: str, new_name: str, path: Optional[PathLike] = None) -> AgentConfig:
+    """Change an agent's name in the registry; its key and other settings stay. Stored history is not touched here."""
+    path = Path(path or settings.AGENTS_PATH)
+
+    def rename(agents: list) -> AgentConfig:
+        current = _find(agents, name)
+        if new_name == name:
+            raise ConfigError(f"agent '{name}' already has that name")
+        if any(a.name == new_name for a in agents):
+            raise ConfigError(f"agent '{new_name}' already exists")
+        try:
+            renamed = AgentConfig.model_validate({**current.model_dump(), "name": new_name})
+        except ValidationError as exc:
+            raise ConfigError(_format_errors(path, exc)) from exc
+        agents[agents.index(current)] = renamed
+        return renamed
+
+    return _edit_agents(path, rename)
+
+
 def remove_agent(name: str, path: Optional[PathLike] = None) -> None:
     """Delete an agent from the registry; its stored history is left alone."""
     def remove(agents: list) -> None:

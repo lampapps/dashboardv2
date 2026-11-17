@@ -5,7 +5,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from . import db, settings
+from . import config, db, settings
+
+# Every table column that stores an agent's name; there are no foreign keys between them.
+AGENT_NAME_COLUMNS = ("runs", "agent"), ("daily_runs", "agent"), ("job_schedules", "agent"), \
+    ("agent_status_log", "agent"), ("agent_state", "name"), ("storage_samples", "source")
 
 
 def integrity_problems(conn: sqlite3.Connection) -> list:
@@ -176,12 +180,35 @@ def delete_agent_history(conn: sqlite3.Connection, agent: str) -> dict:
     """Delete everything stored under an agent's name; returns rows deleted per table."""
     deleted = {}
     with db.transaction(conn):
-        for table, column in (("runs", "agent"), ("daily_runs", "agent"), ("job_schedules", "agent"),
-                              ("agent_status_log", "agent"), ("agent_state", "name"),
-                              ("storage_samples", "source")):
+        for table, column in AGENT_NAME_COLUMNS:
             deleted[table] = conn.execute(f"DELETE FROM {table} WHERE {column} = ?", (agent,)).rowcount
         db.bump_rev(conn)
     return deleted
+
+
+def rename_agent(old: str, new: str) -> dict:
+    """Rename an agent in agents.yaml and, when the database exists, in every table that stores its name.
+
+    Returns the rows changed per table. A name that already has stored history is refused: its rows would merge
+    with the old agent's. The registry is written last, inside the transaction, so a failure changes neither.
+    """
+    if not settings.DB_PATH.exists():
+        config.rename_agent(old, new)
+        return {}
+    conn = db.connect()
+    try:
+        with db.transaction(conn):
+            taken = [table for table, column in AGENT_NAME_COLUMNS
+                     if conn.execute(f"SELECT 1 FROM {table} WHERE {column} = ? LIMIT 1", (new,)).fetchone()]
+            if taken:
+                raise config.ConfigError(f"'{new}' already has stored history ({', '.join(taken)}); choose another name")
+            changed = {table: conn.execute(f"UPDATE {table} SET {column} = ? WHERE {column} = ?",
+                                           (new, old)).rowcount for table, column in AGENT_NAME_COLUMNS}
+            config.rename_agent(old, new)
+            db.bump_rev(conn)
+    finally:
+        conn.close()
+    return changed
 
 
 def storage_series(conn: sqlite3.Connection) -> list:

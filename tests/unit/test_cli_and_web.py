@@ -66,6 +66,25 @@ class TestCli:
         assert code == 1
         assert "not found" in err
 
+    def test_agent_rename_moves_history_and_keeps_the_key(self, home, capsys):
+        key = run_cli(capsys, "agent", "add", "old")[1].strip().rsplit(" ", 1)[-1]
+        run_cli(capsys, "initdb")
+        conn = db.connect()
+        conn.execute("INSERT INTO runs (agent, job_name, status, started_at, updated_at) VALUES ('old', 'J', 'success', 1, 1)")
+        conn.close()
+        code, out, _ = run_cli(capsys, "agent", "rename", "old", "new")
+        assert code == 0 and "renamed to 'new'" in out and "runs 1" in out
+        assert config.load_agents()[0].key_hash == config.hash_key(key)
+        conn = db.connect()
+        assert conn.execute("SELECT agent FROM runs").fetchone()[0] == "new"
+        conn.close()
+
+    def test_agent_rename_to_an_existing_name_fails(self, home, capsys):
+        run_cli(capsys, "agent", "add", "a")
+        run_cli(capsys, "agent", "add", "b")
+        code, _, err = run_cli(capsys, "agent", "rename", "a", "b")
+        assert code == 1 and "already exists" in err
+
     def test_tick_records_the_time_it_ran(self, home, capsys):
         assert run_cli(capsys, "tick")[0] == 0
         conn = db.connect()

@@ -74,7 +74,7 @@ After updating the code, run `./setup.sh` again (it only fills in what is missin
 | `config/agents.yaml` | The agent registry. Keys are stored only as SHA-256 hashes. Managed with the `agent` commands or the console; edits take effect without a restart |
 | `.env` | Secrets: `JABS_SMTP_USERNAME`, `JABS_SMTP_PASSWORD`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`. `ENV_MODE=development` raises logging to DEBUG and prefixes email subjects with `[DEV]` |
 
-Check the files with `.venv/bin/python -m app config` or the console's Files tab. An agent is identified by its key, so renaming its entry keeps the key working, but its history (stored under the name) starts again under the new name. If `agents.yaml` becomes invalid the dashboard logs why and keeps the last good copy while running; with none it rejects every key.
+Check the files with `.venv/bin/python -m app config` or the console's Files tab. An agent is identified by its key, so renaming its entry keeps the key working, but its history (stored under the name) would start again under the new name. Rename with `agent rename` (or the console's Agents tab) instead of editing the name by hand: it moves the history too. If `agents.yaml` becomes invalid the dashboard logs why and keeps the last good copy while running; with none it rejects every key.
 
 ## Usage
 
@@ -104,6 +104,7 @@ Run as `.venv/bin/python -m app <command>`. The [admin console](#admin-console) 
 | `agent add NAME [--host HOST] [--grace-minutes N] [--notes TEXT] [--allowed-ip IP]` | Register an agent and print its key once |
 | `agent list`, `agent enable NAME`, `agent disable NAME` | Manage the registry; a disabled agent's key is rejected |
 | `agent set NAME [--host H] [--grace-minutes N] [--notes T] [--allowed-ip IP] [--alerts/--no-alerts]` | Change an agent's settings (an empty `--allowed-ip ''` clears the restriction) |
+| `agent rename NAME NEW_NAME` | Change an agent's name; its key, settings and stored history move with it, and the agent needs no change. Refused when `NEW_NAME` is registered or already has stored history |
 | `agent rekey NAME` | Issue a new API key for an agent (printed once); the old key stops working at once, the name and history stay |
 | `agent remove NAME --yes [--purge-history]` | Delete an agent from the registry; `--purge-history` also deletes its runs, status and storage samples |
 | `backup [--dest FILE]` | Consistent copy of the database, safe while running |
@@ -123,7 +124,7 @@ Run as `.venv/bin/python -m app <command>`. The [admin console](#admin-console) 
 
 | Tab | What you can do |
 | --- | --- |
-| 1 Agents | See settings and last contact. Add, edit, enable or disable, issue a new key, remove. A new key is shown once, with the lines for the agent's `.env` |
+| 1 Agents | See settings and last contact. Add, edit, rename, enable or disable, issue a new key, remove. A new key is shown once, with the lines for the agent's `.env` |
 | 2 Files | Check `config.yaml`, `agents.yaml` and `.env` (valid, safe permissions). **Edit** opens the file in your system editor (`$VISUAL`, `$EDITOR`, else the system default such as nano) and validates it afterwards: edit again, revert or keep. Offers a service restart after `config.yaml` or `.env` changes |
 | 3 Database | Version, size and row counts. Back up, restore, check integrity, vacuum, migrate, reset, purge storage samples, and delete runs for an agent or job, or mark individual runs (Space) and delete just those. Runs are listed with time, status, target, size, id and message |
 | 4 Diagnostics | Run the tick now, send a test mail, preview and send the digest, preview and test-send an offline alert (marked `[TEST]`, changes no state), find which agent an API key belongs to, view internal state, run the development server |

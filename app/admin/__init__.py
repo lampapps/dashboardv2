@@ -27,6 +27,7 @@ COVERAGE = {
     "agent add": "agents.add",
     "agent list": "agents.list",
     "agent set": "agents.set",
+    "agent rename": "agents.rename",
     "agent rekey": "agents.rekey",
     "agent enable": "agents.enable",
     "agent disable": "agents.disable",

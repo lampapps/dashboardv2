@@ -75,6 +75,72 @@ class TestAgentEditing:
         assert (settings.AGENTS_PATH.parent / ".agents.lock").exists()
 
 
+class TestRenamingAnAgent:
+    def seed(self, conn, agent):
+        add_run(conn, agent=agent)
+        conn.execute("INSERT INTO agent_state (name, updated_at) VALUES (?, 1)", (agent,))
+        conn.execute("INSERT INTO agent_status_log (agent, ts, status) VALUES (?, 1, 'up')", (agent,))
+        conn.execute("INSERT INTO daily_runs VALUES ('2026-01-01', ?, 'success', 1)", (agent,))
+        conn.execute("INSERT INTO job_schedules VALUES (?, 'J', '0 3 * * *', 1)", (agent,))
+        conn.execute("INSERT INTO storage_samples VALUES (?, 'repo', 'r', '', 1, 5, NULL)", (agent,))
+
+    def test_registry_rename_keeps_key_and_settings(self, home):
+        key = config.add_agent("old", grace_minutes=30, notes="n", host="H", allowed_ip="10.0.0.5")
+        config.rename_agent("old", "new")
+        (agent,) = config.load_agents()
+        assert (agent.name, agent.grace_minutes, agent.notes, agent.host, agent.allowed_ip) == \
+            ("new", 30, "n", "H", "10.0.0.5")
+        assert agent.key_hash == config.hash_key(key)
+
+    @pytest.mark.parametrize("old,new,message", [
+        ("ghost", "x", "not found"), ("a", "a", "already has that name"), ("a", "b", "already exists"),
+        ("a", "two words", "name"),
+    ])
+    def test_registry_rename_refusals_leave_the_file_alone(self, home, old, new, message):
+        config.add_agent("a")
+        config.add_agent("b")
+        before = settings.AGENTS_PATH.read_text()
+        with pytest.raises(config.ConfigError, match=message):
+            config.rename_agent(old, new)
+        assert settings.AGENTS_PATH.read_text() == before
+
+    def test_every_table_follows_the_new_name_and_others_are_untouched(self, conn):
+        config.add_agent("old")
+        config.add_agent("other")
+        self.seed(conn, "old")
+        self.seed(conn, "other")
+        conn.execute("INSERT INTO storage_samples VALUES ('dashboard', 'local', '/', '', 1, 5, 10)")
+        changed = maintenance.rename_agent("old", "new")
+        assert changed == {table: 1 for table, _ in maintenance.AGENT_NAME_COLUMNS}
+        for table, column in maintenance.AGENT_NAME_COLUMNS:
+            names = sorted(r[0] for r in conn.execute(f"SELECT {column} FROM {table}"))
+            assert "old" not in names and "new" in names and "other" in names, table
+        assert count(conn, "events") == 2
+        assert [a.name for a in config.load_agents()] == ["new", "other"]
+
+    def test_without_a_database_only_the_registry_changes(self, home):
+        config.add_agent("old")
+        assert maintenance.rename_agent("old", "new") == {}
+        assert [a.name for a in config.load_agents()] == ["new"]
+
+    def test_a_name_with_stored_history_is_refused_and_nothing_changes(self, conn):
+        config.add_agent("old")
+        self.seed(conn, "old")
+        conn.execute("INSERT INTO storage_samples VALUES ('taken', 'repo', 'r', '', 1, 5, NULL)")
+        before = settings.AGENTS_PATH.read_text()
+        with pytest.raises(config.ConfigError, match="already has stored history \\(storage_samples\\)"):
+            maintenance.rename_agent("old", "taken")
+        assert settings.AGENTS_PATH.read_text() == before
+        assert conn.execute("SELECT COUNT(*) FROM runs WHERE agent = 'old'").fetchone()[0] == 1
+
+    def test_a_registry_failure_rolls_the_database_back(self, conn):
+        self.seed(conn, "old")      # "old" is not registered, so the registry step fails
+        with pytest.raises(config.ConfigError, match="not found"):
+            maintenance.rename_agent("old", "new")
+        assert conn.execute("SELECT COUNT(*) FROM runs WHERE agent = 'old'").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM runs WHERE agent = 'new'").fetchone()[0] == 0
+
+
 class TestDeletingHistory:
     def test_delete_runs_for_a_job_removes_events_and_schedule_only_for_that_job(self, conn):
         add_run(conn, job="J1")
