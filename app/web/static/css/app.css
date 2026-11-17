@@ -186,9 +186,11 @@ a.host-name:hover { color: var(--accent); }
 .facts dd { margin: 0; overflow-wrap: anywhere; white-space: pre-line; }
 .config summary { cursor: pointer; color: var(--muted); }
 .config[open] summary { margin-bottom: .5rem; }
+.config-jobs-label { margin-top: .5rem; color: var(--muted); font-size: .9rem; }
+.config-jobs { font-size: .9rem; overflow-wrap: anywhere; }
 .job-config + .job-config { margin-top: .5rem; }
 .job-config-name { font-weight: 600; }
-.job-config .facts { margin-left: .75rem; }
+.job-config .facts { margin-left: .5rem; gap: .15rem .75rem; }
 .facts dt.job-config-target { grid-column: 1 / -1; color: var(--text); }
 
 .crumbs { margin: .25rem 0 .6rem; }

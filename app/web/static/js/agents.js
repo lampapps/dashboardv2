@@ -67,9 +67,12 @@ function createCard() {
   const cfg = el("dl", "facts");
   const refs = {
     enabled: fact(cfg, "Enabled"), grace: fact(cfg, "Grace period"), alerts: fact(cfg, "Offline alerts"),
-    ip: fact(cfg, "Allowed IP"), notes: fact(cfg, "Notes"), jobsConfig: fact(cfg, "Jobs"),
+    ip: fact(cfg, "Allowed IP"), notes: fact(cfg, "Notes"),
   };
   details.append(cfg);
+  // Below the two-column facts, not inside them, so long paths get the whole card width.
+  refs.jobsConfig = el("div", "config-jobs");
+  details.append(el("div", "config-jobs-label", "Jobs"), refs.jobsConfig);
 
   card.append(head, meta, uptimeRow, timeline, axis, facts, details);
   card._refs = { nameLink, pill, meta, uptime, uptimeLabel, timeline, axisStart, host, lastContact, jobs, lastRunPill, lastRunText, lastRun, ...refs };
