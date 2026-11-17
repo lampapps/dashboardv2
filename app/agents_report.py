@@ -28,6 +28,19 @@ class _Context:
         for row in conn.execute("SELECT agent, job_name, cron_schedule FROM job_schedules ORDER BY job_name"):
             self.schedules.setdefault(row["agent"], []).append(
                 {"job_name": row["job_name"], "cron_schedule": row["cron_schedule"]})
+        self.targets: dict = {}
+        for row in conn.execute("SELECT agent, job_name, target, source, destination FROM job_targets "
+                                "ORDER BY job_name, target"):
+            self.targets.setdefault(row["agent"], {}).setdefault(row["job_name"], []).append(
+                {"name": row["target"], "source": row["source"], "destination": row["destination"]})
+
+    def jobs_config(self, agent: str) -> list:
+        """Every job the agent has told us about, with its cron schedule and what it copies (either may be missing)."""
+        schedules = {s["job_name"]: s["cron_schedule"] for s in self.schedules.get(agent, [])}
+        targets = self.targets.get(agent, {})
+        names = sorted(set(schedules) | set(targets), key=lambda name: (name.casefold(), name))
+        return [{"job_name": name, "cron_schedule": schedules.get(name), "targets": targets.get(name, [])}
+                for name in names]
 
 
 def _card(ctx: _Context, agent: AgentConfig, start: float) -> dict:
@@ -61,6 +74,7 @@ def _card(ctx: _Context, agent: AgentConfig, start: float) -> dict:
         "last_run": None if latest is None else {
             "job_name": latest["job_name"], "status": latest["last_status"], "started_at": latest["last_started_at"]},
         "schedules": ctx.schedules.get(agent.name, []),
+        "jobs_config": ctx.jobs_config(agent.name),
     }
 
 

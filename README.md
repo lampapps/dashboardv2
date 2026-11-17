@@ -146,9 +146,11 @@ New endpoints live under `/api/v2/` and are opt-in per agent:
 ```text
 POST /api/v2/storage   {"hostname"?: "...", "samples": [{"name", "kind": "local|cloud|repo",
                          "used_bytes", "total_bytes"?, "series"?, "timestamp"?}]}
+POST /api/v2/jobs      {"hostname"?: "...", "jobs": [{"job_name", "targets": [{"name"?, "source"?,
+                         "destination"?}]}]}
 ```
 
-Stored storage samples count as contact, but the Overview charts only the drives and S3 buckets listed under `storage:` in `config.yaml`. Agent-supplied text is untrusted and always rendered as text, never as HTML.
+Stored storage samples count as contact, but the Overview charts only the drives and S3 buckets listed under `storage:` in `config.yaml`. `jobs` replaces what the agent reported before and fills the Jobs list (schedule, source and destination) in the agent's Configuration section on the Agents page. Agent-supplied text is untrusted and always rendered as text, never as HTML.
 
 **Hosts.** A job name alone is not unique when agents run on several machines, so every job is shown with its host. An agent reports its machine name in `hostname` (always used when present); otherwise `host` in `agents.yaml` is used (`agent add NAME --host HOST`), otherwise the agent name. A reported name that is not a plausible host name is ignored, not rejected.
 

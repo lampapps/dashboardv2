@@ -7,7 +7,7 @@ Behavior matches the v1 dashboard's /api/monitoring endpoints so existing agents
 import sqlite3
 from typing import Any, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import db, status as agent_status
 from .config import clean_hostname
@@ -24,6 +24,51 @@ _STRING_LIMITS = {
 }
 
 DEFAULT_PURGE_MESSAGE = "Job target artifact(s) purged by agent"
+
+MAX_JOBS = 200
+MAX_TARGETS_PER_JOB = 200
+_TARGET_LIMITS = {"name": 200, "source": 1000, "destination": 1000}
+
+
+class JobTarget(BaseModel):
+    """One source and destination a job copies, e.g. a sync pair."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    name: str = ""
+    source: str = ""
+    destination: str = ""
+
+    @field_validator(*_TARGET_LIMITS, mode="before")
+    @classmethod
+    def _clean_text(cls, value: Any, info) -> str:
+        return value.strip()[:_TARGET_LIMITS[info.field_name]] if isinstance(value, str) else ""
+
+
+class JobConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    job_name: str = Field(min_length=1)
+    targets: list[JobTarget] = Field(default_factory=list, max_length=MAX_TARGETS_PER_JOB)
+
+    @field_validator("job_name", mode="before")
+    @classmethod
+    def _clean_name(cls, value: Any) -> Any:
+        return value.strip()[:_STRING_LIMITS["job_name"]] if isinstance(value, str) else value
+
+
+class JobsPayload(BaseModel):
+    """Body of POST /api/v2/jobs: every job the agent has configured, replacing what it reported before."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    hostname: Optional[str] = None
+    jobs: list[JobConfig] = Field(max_length=MAX_JOBS)
+
+    @field_validator("hostname", mode="before")
+    @classmethod
+    def _clean_hostname(cls, value: Any) -> Optional[str]:
+        return clean_hostname(value)
 
 
 class EventPayload(BaseModel):
@@ -202,6 +247,20 @@ def record_event(conn: sqlite3.Connection, agent: str, p: EventPayload, now: flo
             _apply_progress(conn, run_pk, p, now)
         db.bump_rev(conn)
     return {"success": True, "event_id": event_id, "backup_job_id": run_pk}
+
+
+def record_jobs(conn: sqlite3.Connection, agent: str, p: JobsPayload, now: float) -> int:
+    """Replace what the agent reported about its jobs; returns the targets stored."""
+    rows = [(agent, job.job_name, target.name or job.job_name, target.source, target.destination, now)
+            for job in p.jobs for target in job.targets]
+    with db.transaction(conn):
+        touch_agent(conn, agent, now, p.hostname)
+        conn.execute("DELETE FROM job_targets WHERE agent = ?", (agent,))
+        conn.executemany(
+            "INSERT OR REPLACE INTO job_targets (agent, job_name, target, source, destination, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)", rows)
+        db.bump_rev(conn)
+    return len(rows)
 
 
 def record_purge(conn: sqlite3.Connection, agent: str, p: PurgePayload, now: float) -> dict:

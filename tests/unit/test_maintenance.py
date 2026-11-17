@@ -83,6 +83,7 @@ class TestRenamingAnAgent:
         conn.execute("INSERT INTO daily_runs VALUES ('2026-01-01', ?, 'success', 1)", (agent,))
         conn.execute("INSERT INTO job_schedules VALUES (?, 'J', '0 3 * * *', 1)", (agent,))
         conn.execute("INSERT INTO storage_samples VALUES (?, 'repo', 'r', '', 1, 5, NULL)", (agent,))
+        conn.execute("INSERT INTO job_targets VALUES (?, 'J', 'J', '/s', '/d', 1)", (agent,))
 
     def test_registry_rename_keeps_key_and_settings(self, home):
         key = config.add_agent("old", grace_minutes=30, notes="n", host="H", allowed_ip="10.0.0.5")
@@ -169,11 +170,12 @@ class TestDeletingHistory:
         conn.execute("INSERT INTO agent_state (name, updated_at) VALUES ('a', 1)")
         conn.execute("INSERT INTO agent_status_log (agent, ts, status) VALUES ('a', 1, 'up')")
         conn.execute("INSERT INTO daily_runs VALUES ('2026-01-01', 'a', 'success', 1)")
+        conn.execute("INSERT INTO job_targets VALUES ('a', 'J', 'J', '/s', '/d', 1)")
         conn.execute("INSERT INTO storage_samples VALUES ('a', 'repo', 'r', '', 1, 5, NULL)")
         conn.execute("INSERT INTO storage_samples VALUES ('dashboard', 'local', '/', '', 1, 5, 10)")
         deleted = maintenance.delete_agent_history(conn, "a")
         assert deleted["runs"] == 1 and deleted["storage_samples"] == 1
-        for table in ("agent_state", "agent_status_log", "daily_runs"):
+        for table in ("agent_state", "agent_status_log", "daily_runs", "job_targets"):
             assert count(conn, table) == 0
         assert count(conn, "runs") == 1 and count(conn, "storage_samples") == 1
 

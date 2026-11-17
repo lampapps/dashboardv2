@@ -68,6 +68,18 @@ export function fmtPercent(fraction) {
   return fraction === null || fraction === undefined ? "–" : `${Math.round(fraction * 1000) / 10}%`;
 }
 
+// Rows for one job on an agent card: its schedule, then each target's source and destination.
+// A job with several targets (a sync job's pairs) gets a heading row before each target.
+export function jobConfigRows(job) {
+  const rows = [{ label: "Schedule", text: job.cron_schedule || "–" }];
+  const targets = job.targets && job.targets.length ? job.targets : [{ name: "", source: "", destination: "" }];
+  for (const target of targets) {
+    if (targets.length > 1) rows.push({ heading: target.name });
+    rows.push({ label: "Source", text: target.source || "–" }, { label: "Destination", text: target.destination || "–" });
+  }
+  return rows;
+}
+
 const BYTE_UNITS = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
 
 export function fmtBytes(bytes, digits) {

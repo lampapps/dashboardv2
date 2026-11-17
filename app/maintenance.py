@@ -9,7 +9,7 @@ from . import config, db, settings
 
 # Every table column that stores an agent's name; there are no foreign keys between them.
 AGENT_NAME_COLUMNS = ("runs", "agent"), ("daily_runs", "agent"), ("job_schedules", "agent"), \
-    ("agent_status_log", "agent"), ("agent_state", "name"), ("storage_samples", "source")
+    ("agent_status_log", "agent"), ("agent_state", "name"), ("storage_samples", "source"), ("job_targets", "agent")
 
 
 def integrity_problems(conn: sqlite3.Connection) -> list:

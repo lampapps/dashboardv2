@@ -111,6 +111,24 @@ def submit_storage():
     return jsonify({"success": True, "stored": stored}), 201
 
 
+@bp.post("/api/v2/jobs")
+def submit_jobs():
+    """The agent's configured jobs with their sources and destinations, shown on the Agents page; opt-in per agent."""
+    agent, error = _authenticate()
+    if error:
+        return error
+    payload, error = _parse(ingest.JobsPayload)
+    if error:
+        return error
+    try:
+        with closing(db.connect()) as conn:
+            stored = ingest.record_jobs(conn, agent.name, payload, time.time())
+    except sqlite3.Error:
+        logger.exception("failed to record jobs from agent %s", agent.name)
+        return _error("Failed to record jobs", 500)
+    return jsonify({"success": True, "stored": stored}), 201
+
+
 @bp.get("/api/heartbeat")
 def heartbeat():
     """Health check polled by Uptime Kuma and other monitors; same shape as v1."""

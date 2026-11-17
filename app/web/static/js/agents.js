@@ -1,6 +1,6 @@
 import {
   el, setText, setClass, setStyle, setTitle, setHidden, setData, readStore, writeStore, reconcile, getJson, poll,
-  initThemeToggle, refreshRelative, fmtClock, fmtDateTime, fmtRelative, fmtShort, fmtTick, fmtPercent,
+  initThemeToggle, refreshRelative, fmtClock, fmtDateTime, fmtRelative, fmtShort, fmtTick, fmtPercent, jobConfigRows,
 } from "./ui.js";
 import { AGENT_STATUS_LABEL as STATUS_LABEL, agentHref, bucketOf, groupByHost, groupKey, HOST_SOURCE_LABEL, syncTimeline } from "./shared.js";
 
@@ -67,7 +67,7 @@ function createCard() {
   const cfg = el("dl", "facts");
   const refs = {
     enabled: fact(cfg, "Enabled"), grace: fact(cfg, "Grace period"), alerts: fact(cfg, "Offline alerts"),
-    ip: fact(cfg, "Allowed IP"), notes: fact(cfg, "Notes"), schedules: fact(cfg, "Schedules"),
+    ip: fact(cfg, "Allowed IP"), notes: fact(cfg, "Notes"), jobsConfig: fact(cfg, "Jobs"),
   };
   details.append(cfg);
 
@@ -124,7 +124,30 @@ function updateCard(card, agent) {
   setText(r.alerts, cfg.offline_alerts ? "on" : "off");
   setText(r.ip, cfg.allowed_ip || "any");
   setText(r.notes, cfg.notes || "–");
-  setText(r.schedules, agent.schedules.length ? agent.schedules.map((s) => `${s.job_name}: ${s.cron_schedule}`).join("\n") : "–");
+  renderJobsConfig(r.jobsConfig, agent.jobs_config);
+}
+
+// Rebuilt only when the jobs change, so the 15 s refresh never flickers an open card.
+function renderJobsConfig(container, jobs) {
+  const key = JSON.stringify(jobs);
+  if (container.dataset.jobs === key) return;
+  container.dataset.jobs = key;
+  container.replaceChildren();
+  if (!jobs.length) {
+    container.textContent = "–";
+    return;
+  }
+  for (const job of jobs) {
+    const block = el("div", "job-config");
+    block.append(el("div", "job-config-name", job.job_name));
+    const list = el("dl", "facts");
+    for (const row of jobConfigRows(job)) {
+      if (row.heading !== undefined) list.append(el("dt", "job-config-target", row.heading));
+      else list.append(el("dt", null, row.label), el("dd", null, row.text));
+    }
+    block.append(list);
+    container.append(block);
+  }
 }
 
 // ---------------------------------------------------------------- render and fetch

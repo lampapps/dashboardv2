@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import {
   fmtDateTime, fmtClock, fmtShort, fmtDayLabel, fmtDuration, fmtRelative, fmtPercent, fmtBytes, fmtTick,
-  niceByteTicks, tickValues, reconcile, singlePointRange,
+  niceByteTicks, tickValues, reconcile, singlePointRange, jobConfigRows,
 } from "../../app/web/static/js/ui.js";
 import { bucketOf, agentHref, jobHref, agentLabel, groupByHost, groupKey } from "../../app/web/static/js/shared.js";
 import { totalsText } from "../../app/web/static/js/jobs-table.js";
@@ -20,6 +20,29 @@ test("date and time formatting uses the given timezone", () => {
 test("day labels are calendar days and do not shift with the viewer's timezone", () => {
   assert.equal(fmtDayLabel("2026-11-09"), "Nov 9");
   assert.equal(fmtDayLabel("2026-01-01"), "Jan 1");
+});
+
+test("a job's card rows list its schedule, source and destination", () => {
+  const single = jobConfigRows({
+    job_name: "jim-home", cron_schedule: "0 0 * * *",
+    targets: [{ name: "jim-home", source: "/home/jim", destination: "s3:bucket/jim" }],
+  });
+  assert.deepEqual(single, [
+    { label: "Schedule", text: "0 0 * * *" }, { label: "Source", text: "/home/jim" },
+    { label: "Destination", text: "s3:bucket/jim" },
+  ]);
+});
+
+test("a job with several targets gets a heading per target, and missing data shows a dash", () => {
+  const rows = jobConfigRows({
+    job_name: "sync", cron_schedule: null,
+    targets: [{ name: "a", source: "/a", destination: "nas:a" }, { name: "b", source: "nas:b", destination: "" }],
+  });
+  assert.deepEqual(rows.map((r) => r.heading ?? `${r.label}=${r.text}`), [
+    "Schedule=–", "a", "Source=/a", "Destination=nas:a", "b", "Source=nas:b", "Destination=–",
+  ]);
+  assert.deepEqual(jobConfigRows({ job_name: "x", cron_schedule: "* * * * *", targets: [] }).map((r) => r.text),
+    ["* * * * *", "–", "–"]);
 });
 
 test("durations", () => {

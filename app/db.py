@@ -125,6 +125,19 @@ MIGRATIONS: list[list[str]] = [
         # The machine name the agent itself reported; wins over the host set in agents.yaml.
         "ALTER TABLE agent_state ADD COLUMN hostname TEXT",
     ],
+    [
+        # What each agent job reads and writes, as the agent last reported it (replaced wholesale per agent).
+        # target is a sync pair's name or the job's own name; the Agents page shows these beside the schedule.
+        """CREATE TABLE job_targets (
+            agent TEXT NOT NULL,
+            job_name TEXT NOT NULL,
+            target TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT '',
+            destination TEXT NOT NULL DEFAULT '',
+            updated_at REAL NOT NULL,
+            PRIMARY KEY (agent, job_name, target)
+        )""",
+    ],
 ]
 
 

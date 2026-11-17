@@ -268,7 +268,61 @@ X-API-Key: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 }
 ```
 
-### 4. `GET /api/heartbeat`
+### 4. `POST /api/v2/jobs`
+
+Opt-in. Reports the jobs the agent has configured, with what each one reads and writes. The Agents page lists them in an agent's Configuration section, with the cron schedule that the agent sends in its heartbeats. Send it with every scheduler heartbeat: each report **replaces** the agent's previous one, so a job removed from the agent's config disappears. It also counts as contact for the agent.
+
+Never put credentials in `source` or `destination`; both are stored and shown as text.
+
+#### Request body fields
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `hostname` | string | no | The machine the agent runs on; same rules as for events. |
+| `jobs` | array | **yes** | 0 to 200 jobs. An empty list clears what the agent reported. |
+
+Each job:
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `job_name` | string | **yes** | Same value as the `job_name` of its events; up to 200 characters. |
+| `targets` | array | no | Up to 200 targets. A job that copies one thing has one target; a sync job has one per source/destination pair. |
+
+Each target:
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `name` | string | no | Up to 200 characters; defaults to the job name. Unique within the job (a repeated name replaces the earlier one). |
+| `source` | string | no | Up to 1000 characters; several paths can be separated by newlines. |
+| `destination` | string | no | Up to 1000 characters. |
+
+Over-long text is cut, not rejected.
+
+#### Responses
+
+- `201 {"success": true, "stored": <int>}` (the number of targets stored)
+- `400 {"error": "Invalid value for '<field>': <reason>"}`
+- `401`, `403`: as for events.
+- `500 {"error": "Failed to record jobs"}`
+
+#### Example
+
+```json
+POST /api/v2/jobs
+X-API-Key: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+{
+  "hostname": "backup-host",
+  "jobs": [
+    {"job_name": "jim-home", "targets": [
+      {"name": "jim-home", "source": "/home/jim", "destination": "s3:s3.amazonaws.com/bucket/jim"}]},
+    {"job_name": "UNAS-KPF", "targets": [
+      {"name": "backups", "source": "/mnt/nas-unas/backups", "destination": "nas2:jof"},
+      {"name": "kpf", "source": "nas2:kpf", "destination": "/mnt/nas-unas/backups-kpf"}]}
+  ]
+}
+```
+
+### 5. `GET /api/heartbeat`
 
 A health check for monitors such as Uptime Kuma. No key is needed. It returns `{"hostname", "version", "status": "ok", "error_event_count"}`. The dashboard's own `/healthz` is the lighter check for the web service.
 
@@ -296,4 +350,4 @@ Agents are versioned independently, and each agent's README lists under Requirem
 
 ## Reference implementation
 
-[snapshot_agent/app/dashboard.py](../../snapshot_agent/app/dashboard.py) is the reference client: events, heartbeats, `target-purged` (with `external_id` and the list of snapshots a prune removed) and `/api/v2/storage`. A smaller client for the v1 endpoints is [local_sync_agent/monitoring_client.py](../../local_sync_agent/monitoring_client.py), which provides `send_event()`, `send_sync_start()`, `send_sync_stage()`, `send_sync_complete()` and `send_scheduler_check()`.
+[snapshot_agent/app/dashboard.py](../../snapshot_agent/app/dashboard.py) is the reference client: events, heartbeats, `target-purged` (with `external_id` and the list of snapshots a prune removed), `/api/v2/storage` and `/api/v2/jobs`. A smaller client for the v1 endpoints is [local_sync_agent/monitoring_client.py](../../local_sync_agent/monitoring_client.py), which provides `send_event()`, `send_sync_start()`, `send_sync_stage()`, `send_sync_complete()` and `send_scheduler_check()`.
