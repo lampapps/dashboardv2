@@ -274,6 +274,8 @@ Opt-in. Reports the jobs the agent has configured, with what each one reads and 
 
 Never put credentials in `source` or `destination`; both are stored and shown as text.
 
+Reporting also removes the schedule recorded from the agent's heartbeats for any job that is not in the list, or that reports schedules with none enabled, so a job deleted on the agent stops showing a schedule. Its run history is kept until it ages out or an administrator deletes it (`runs delete`).
+
 #### Request body fields
 
 | Field | Type | Required | Notes |

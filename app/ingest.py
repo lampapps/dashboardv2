@@ -275,6 +275,12 @@ def record_jobs(conn: sqlite3.Connection, agent: str, p: JobsPayload, now: float
         touch_agent(conn, agent, now, p.hostname)
         conn.execute("DELETE FROM job_targets WHERE agent = ?", (agent,))
         conn.execute("DELETE FROM job_config WHERE agent = ?", (agent,))
+        reported = {job.job_name: job for job in p.jobs}
+        for (name,) in conn.execute("SELECT job_name FROM job_schedules WHERE agent = ?", (agent,)).fetchall():
+            job = reported.get(name)
+            # Heartbeats carry only enabled crons and are never retracted, so a deleted job or one with none enabled is stale.
+            if job is None or (job.schedules is not None and not any(s.enabled for s in job.schedules)):
+                conn.execute("DELETE FROM job_schedules WHERE agent = ? AND job_name = ?", (agent, name))
         conn.executemany(
             "INSERT OR REPLACE INTO job_config (agent, job_name, schedules, updated_at) VALUES (?, ?, ?, ?)",
             [(agent, job.job_name, json.dumps([{"cron": s.cron, "enabled": s.enabled} for s in job.schedules]), now)

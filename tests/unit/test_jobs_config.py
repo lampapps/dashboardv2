@@ -101,6 +101,39 @@ class TestSubmit:
 
 
 class TestSchedules:
+    def heartbeat_schedules(self):
+        conn = db.connect()
+        try:
+            return sorted(r[0] for r in conn.execute("SELECT job_name FROM job_schedules"))
+        finally:
+            conn.close()
+
+    def seed(self):
+        conn = db.connect()
+        for job in ("kept", "deleted", "disabled", "unsaid"):
+            conn.execute("INSERT INTO job_schedules VALUES ('snap', ?, '0 3 * * *', 1)", (job,))
+        conn.execute("INSERT INTO job_schedules VALUES ('other', 'deleted', '0 3 * * *', 1)")
+        conn.close()
+
+    def test_a_deleted_job_loses_its_stale_heartbeat_schedule(self, client, key):
+        self.seed()
+        post(client, key, {"jobs": [
+            {"job_name": "kept", "schedules": [{"cron": "0 3 * * *", "enabled": True}]},
+            {"job_name": "disabled", "schedules": [{"cron": "0 3 * * *", "enabled": False}]},
+            {"job_name": "unsaid"}]})
+        # "deleted" is gone and "disabled" has none enabled; a job whose agent does not say keeps its row
+        conn = db.connect()
+        rows = sorted(tuple(r) for r in conn.execute("SELECT agent, job_name FROM job_schedules"))
+        conn.close()
+        assert rows == [("other", "deleted"), ("snap", "kept"), ("snap", "unsaid")]
+
+    def test_an_empty_report_clears_the_agents_schedules_only(self, client, key):
+        self.seed()
+        post(client, key, {"jobs": []})
+        assert self.heartbeat_schedules() == ["deleted"]   # only the other agent's row is left
+
+
+class TestStoredSchedules:
     def reported(self):
         conn = db.connect()
         try:
