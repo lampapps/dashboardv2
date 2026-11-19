@@ -54,16 +54,20 @@ class AgentRegistry:
         self._refresh()
         return self._by_hash.get(hash_key(key))
 
+    def find_by_id(self, agent_id: str) -> Optional[AgentConfig]:
+        self._refresh()
+        return next((a for a in self._by_hash.values() if a.id == agent_id), None)
+
     def agents(self) -> list:
         self._refresh()
         return list(self._by_hash.values())
 
 
 def resolve_hosts(conn: sqlite3.Connection, agents: list) -> dict:
-    """Host shown for each agent name: what the agent reported, else its agents.yaml host, else its name."""
-    reported = {row["name"]: row["hostname"] for row in conn.execute(
-        "SELECT name, hostname FROM agent_state WHERE hostname IS NOT NULL")}
-    return {agent.name: reported.get(agent.name) or agent.host or agent.name for agent in agents}
+    """Host shown for each agent id: what the agent reported, else its agents.yaml host, else its name."""
+    reported = {row["id"]: row["hostname"] for row in conn.execute(
+        "SELECT id, hostname FROM agents WHERE hostname IS NOT NULL")}
+    return {agent.id: reported.get(agent.id) or agent.host or agent.name for agent in agents}
 
 
 def host_source(reported: Optional[str], agent) -> str:

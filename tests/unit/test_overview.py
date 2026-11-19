@@ -7,6 +7,8 @@ import pytest
 from app import activity, config, db, jobs, overview, tick
 from app.web import api_ui, create_app
 
+from ..seed import aid, ensure_agent, ensure_job, ensure_target
+
 IST = ZoneInfo("Asia/Kolkata")
 NOW = datetime(2026, 1, 15, 12, 0, tzinfo=IST).timestamp()
 
@@ -26,11 +28,12 @@ def conn(tmp_path):
 
 def add_run(conn, agent="a", job="J", status="success", started=NOW - 60, completed=None,
             runtime=None, job_run_id=None, percent=None, current_item=None, eta=None, error=None):
+    target_pk = ensure_target(conn, ensure_job(conn, agent, job), "T")
     conn.execute(
-        "INSERT INTO runs (agent, job_name, status, started_at, completed_at, runtime_seconds, "
+        "INSERT INTO runs (target_pk, status, started_at, completed_at, runtime_seconds, "
         "job_run_id, percent_complete, current_item, eta_seconds, error_message, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (agent, job, status, started, completed, runtime, job_run_id, percent, current_item, eta, error, started),
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (target_pk, status, started, completed, runtime, job_run_id, percent, current_item, eta, error, started),
     )
 
 
@@ -66,7 +69,7 @@ class TestActivity:
     def test_can_be_limited_to_one_agent(self, conn):
         add_run(conn, agent="a")
         add_run(conn, agent="b")
-        series = activity.activity(conn, IST, NOW, days=1, runs_days=30, agent="a")["series"]
+        series = activity.activity(conn, IST, NOW, days=1, runs_days=30, agent_id="a")["series"]
         assert series["success"] == [1]
 
     def test_older_days_come_from_the_rollup_after_raw_runs_are_gone(self, conn):
@@ -135,13 +138,13 @@ class TestOverviewPayload:
         return config.Config(timezone="Asia/Kolkata")
 
     def agents(self):
-        return [config.AgentConfig(name="up1", key_hash="1" * 64, grace_minutes=60),
-                config.AgentConfig(name="down1", key_hash="2" * 64, grace_minutes=60),
-                config.AgentConfig(name="off", key_hash="3" * 64, enabled=False)]
+        return [config.AgentConfig(id=aid("up1"), name="up1", key_hash="1" * 64, grace_minutes=60),
+                config.AgentConfig(id=aid("down1"), name="down1", key_hash="2" * 64, grace_minutes=60),
+                config.AgentConfig(id=aid("off"), name="off", key_hash="3" * 64, enabled=False)]
 
     def test_stats_and_agents(self, conn):
-        conn.execute("INSERT INTO agent_state (name, last_heartbeat, updated_at) VALUES ('up1', ?, ?)", (NOW - 60, NOW))
-        conn.execute("INSERT INTO agent_state (name, last_heartbeat, updated_at) VALUES ('down1', ?, ?)", (NOW - 7200, NOW))
+        ensure_agent(conn, aid("up1"), "up1", last_heartbeat=NOW - 60)
+        ensure_agent(conn, aid("down1"), "down1", last_heartbeat=NOW - 7200)
         add_run(conn, job="ok", completed=NOW - 100)
         add_run(conn, job="bad", status="failed", completed=NOW - 100)
         add_run(conn, job="go", status="running")
@@ -215,7 +218,7 @@ class TestOverviewHttp:
     def test_a_write_changes_the_etag(self, client, home):
         etag = client.get("/api/ui/overview").headers["ETag"]
         key = config.add_agent("nas1")
-        client.post("/api/monitoring/events", json={}, headers={"X-API-Key": key})
+        client.post("/api/v2/heartbeat", json={}, headers={"X-API-Key": key})
         resp = client.get("/api/ui/overview", headers={"If-None-Match": etag})
         assert resp.status_code == 200
         assert resp.headers["ETag"] != etag

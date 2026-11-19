@@ -16,24 +16,62 @@ class DbError(Exception):
 
 # Each migration is a list of statements applied in one transaction. Until the first
 # production install, migration 1 may still be edited; after that, only append.
+#
+# Identity: an agent is its immutable id (agents.yaml), a job is (agent, job_key) where job_key is the id the
+# agent gives it, and a target is (job, target_key). Names and labels are display text that the agent may change.
 MIGRATIONS: list[list[str]] = [
     [
         "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
-        """CREATE TABLE agent_state (
-            name TEXT PRIMARY KEY,
+        # One row per agent that has been heard from or is registered; name follows agents.yaml.
+        """CREATE TABLE agents (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
             version TEXT,
             agent_type TEXT,
+            hostname TEXT,
             last_heartbeat REAL,
+            status TEXT,
+            status_since REAL,
+            alert_count INTEGER NOT NULL DEFAULT 0,
+            last_alert_at REAL,
             updated_at REAL NOT NULL
         )""",
+        # reported_at is set by a jobs report; active drops to 0 when a later report no longer lists the job.
+        """CREATE TABLE jobs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+            job_key TEXT NOT NULL,
+            name TEXT NOT NULL,
+            active INTEGER NOT NULL DEFAULT 1,
+            reported_at REAL,
+            updated_at REAL NOT NULL,
+            UNIQUE (agent_id, job_key)
+        )""",
+        # Schedules as the agent reports them, enabled or not.
+        """CREATE TABLE job_schedules (
+            job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+            cron TEXT NOT NULL,
+            enabled INTEGER NOT NULL,
+            PRIMARY KEY (job_id, cron)
+        )""",
+        # A sync pair, or a snapshot job's single target.
+        """CREATE TABLE targets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+            target_key TEXT NOT NULL,
+            label TEXT NOT NULL DEFAULT '',
+            source TEXT NOT NULL DEFAULT '',
+            destination TEXT NOT NULL DEFAULT '',
+            active INTEGER NOT NULL DEFAULT 1,
+            updated_at REAL NOT NULL,
+            UNIQUE (job_id, target_key)
+        )""",
+        # source and destination here are facts of the run itself (a DNS image file differs every run).
         """CREATE TABLE runs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            agent TEXT NOT NULL,
+            target_pk INTEGER NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
             run_id TEXT,
             job_run_id TEXT,
-            job_name TEXT NOT NULL DEFAULT '',
-            target_id TEXT NOT NULL DEFAULT '',
-            target_label TEXT NOT NULL DEFAULT '',
             backup_type TEXT NOT NULL DEFAULT '',
             source TEXT NOT NULL DEFAULT '',
             destination TEXT NOT NULL DEFAULT '',
@@ -54,11 +92,16 @@ MIGRATIONS: list[list[str]] = [
             progress_updated_at REAL,
             updated_at REAL NOT NULL
         )""",
-        "CREATE UNIQUE INDEX idx_runs_agent_run_id ON runs(agent, run_id) WHERE run_id IS NOT NULL",
-        "CREATE INDEX idx_runs_agent_job ON runs(agent, job_name, started_at DESC)",
-        "CREATE INDEX idx_runs_target ON runs(agent, target_id, started_at DESC)",
+        "CREATE UNIQUE INDEX idx_runs_target_run_id ON runs(target_pk, run_id) WHERE run_id IS NOT NULL",
+        "CREATE INDEX idx_runs_target ON runs(target_pk, started_at DESC)",
         "CREATE INDEX idx_runs_started ON runs(started_at)",
-        "CREATE INDEX idx_runs_external ON runs(agent, target_id, external_id)",
+        "CREATE INDEX idx_runs_external ON runs(target_pk, external_id)",
+        "CREATE INDEX idx_jobs_agent ON jobs(agent_id)",
+        # The old flat shape of a run: which agent, job and target it belongs to, joined in.
+        """CREATE VIEW run_view AS
+            SELECT r.*, t.job_id AS job_pk, t.target_key AS target_id, t.label AS target_label,
+                   j.agent_id AS agent_id, j.job_key AS job_key, j.name AS job_name
+            FROM runs r JOIN targets t ON t.id = r.target_pk JOIN jobs j ON j.id = t.job_id""",
         """CREATE TABLE events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             run_pk INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
@@ -70,34 +113,23 @@ MIGRATIONS: list[list[str]] = [
             created_at REAL NOT NULL
         )""",
         "CREATE INDEX idx_events_run ON events(run_pk, id)",
-        """CREATE TABLE job_schedules (
-            agent TEXT NOT NULL,
-            job_name TEXT NOT NULL,
-            cron_schedule TEXT NOT NULL,
-            updated_at REAL NOT NULL,
-            PRIMARY KEY (agent, job_name)
-        )""",
         """CREATE TABLE agent_status_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            agent TEXT NOT NULL,
+            agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
             ts REAL NOT NULL,
             status TEXT NOT NULL CHECK (status IN ('up', 'down', 'disabled', 'unknown')),
             reason TEXT NOT NULL DEFAULT ''
         )""",
-        "CREATE INDEX idx_status_log_agent_ts ON agent_status_log(agent, ts)",
-    ],
-    [
+        "CREATE INDEX idx_status_log_agent_ts ON agent_status_log(agent_id, ts)",
         # Per-day run counts by outcome bucket; outlives the raw runs the counts came from.
         """CREATE TABLE daily_runs (
             day TEXT NOT NULL,
-            agent TEXT NOT NULL,
+            agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
             bucket TEXT NOT NULL,
             runs INTEGER NOT NULL,
-            PRIMARY KEY (day, agent, bucket)
+            PRIMARY KEY (day, agent_id, bucket)
         )""",
-    ],
-    [
-        # Storage usage over time. source is 'dashboard' or an agent name; series splits a group
+        # Storage usage over time. source is 'dashboard' or an agent id; series splits a group
         # (S3 storage class or prefix) and is '' for plain drives. total_bytes is NULL when unbounded.
         """CREATE TABLE storage_samples (
             source TEXT NOT NULL,
@@ -110,44 +142,6 @@ MIGRATIONS: list[list[str]] = [
             PRIMARY KEY (source, kind, name, series, ts)
         )""",
         "CREATE INDEX idx_storage_samples_ts ON storage_samples(ts)",
-    ],
-    [
-        # Last logged up/down status per agent (NULL = never known), so ingest can spot transitions cheaply.
-        "ALTER TABLE agent_state ADD COLUMN status TEXT",
-        "ALTER TABLE agent_state ADD COLUMN status_since REAL",
-    ],
-    [
-        # Offline-alert progress for the agent's current outage; reset once it is back up.
-        "ALTER TABLE agent_state ADD COLUMN alert_count INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE agent_state ADD COLUMN last_alert_at REAL",
-    ],
-    [
-        # The machine name the agent itself reported; wins over the host set in agents.yaml.
-        "ALTER TABLE agent_state ADD COLUMN hostname TEXT",
-    ],
-    [
-        # What each agent job reads and writes, as the agent last reported it (replaced wholesale per agent).
-        # target is a sync pair's name or the job's own name; the Agents page shows these beside the schedule.
-        """CREATE TABLE job_targets (
-            agent TEXT NOT NULL,
-            job_name TEXT NOT NULL,
-            target TEXT NOT NULL,
-            source TEXT NOT NULL DEFAULT '',
-            destination TEXT NOT NULL DEFAULT '',
-            updated_at REAL NOT NULL,
-            PRIMARY KEY (agent, job_name, target)
-        )""",
-    ],
-    [
-        # The job's schedules as the agent last reported them, enabled or not (JSON list of {cron, enabled});
-        # a row means the agent reported, so an empty list is "no schedules", not "unknown".
-        """CREATE TABLE job_config (
-            agent TEXT NOT NULL,
-            job_name TEXT NOT NULL,
-            schedules TEXT NOT NULL,
-            updated_at REAL NOT NULL,
-            PRIMARY KEY (agent, job_name)
-        )""",
     ],
 ]
 

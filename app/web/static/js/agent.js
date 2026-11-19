@@ -58,7 +58,8 @@ function render(data) {
   setText($("a-alerts"), cfg.offline_alerts ? "on" : "off");
   setText($("a-ip"), cfg.allowed_ip || "any");
   setText($("a-notes"), cfg.notes || "–");
-  setText($("a-schedules"), data.schedules.length ? data.schedules.map((s) => `${s.job_name}: ${s.cron_schedule}`).join("\n") : "–");
+  const scheduled = data.jobs_config.flatMap((j) => j.schedules.filter((s) => s.enabled).map((s) => `${j.job_name}: ${s.cron}`));
+  setText($("a-schedules"), scheduled.length ? scheduled.join("\n") : "–");
 
   const counts = data.counts;
   setCard("runs", String(counts.total), `last ${data.activity.days.length} days`, "");
@@ -99,7 +100,7 @@ async function refresh(force) {
     setText($("updated"), "Updated " + fmtClock(nowEstimate(), state.tz));
   } catch (e) {
     if (mine !== requestSeq) return;
-    showError(e.message === "HTTP 404" ? `Agent '${AGENT}' is not registered.` : "Cannot load data from the dashboard service.");
+    showError(e.message === "HTTP 404" ? "This agent is not registered." : "Cannot load data from the dashboard service.");
   }
 }
 

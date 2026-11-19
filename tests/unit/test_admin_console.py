@@ -13,6 +13,9 @@ from app.admin.panes.diagnostics import DiagnosticsPane
 from app.admin.panes.files import FilesPane
 from app.admin.panes.service import ServicePane
 
+from ..seed import add_run as seed_run
+from ..seed import aid
+
 
 def drive(scenario, size=(130, 45)):
     """Run `scenario(app, pilot)` against a fresh console and return its result."""
@@ -183,10 +186,11 @@ class TestAgents:
     def test_remove_keeps_history_unless_asked(self, home):
         config.add_agent("a")
         config.add_agent("b")
+        a_id, b_id = config.find_agent("a").id, config.find_agent("b").id
         db.init_db()
         conn = db.connect()
         for agent in ("a", "b"):
-            conn.execute("INSERT INTO runs (agent, job_name, status, started_at, updated_at) VALUES (?, 'J', 'success', 1, 1)", (agent,))
+            seed_run(conn, agent=config.find_agent(agent).id, agent_name=agent, started=1)
         conn.close()
 
         async def scenario(app, pilot):
@@ -196,7 +200,7 @@ class TestAgents:
             await press(pilot, app, "ok")
             await wait_for(pilot, lambda: [x.name for x in config.load_agents()] == ["b"])
             conn = db.connect()
-            assert conn.execute("SELECT COUNT(*) FROM runs WHERE agent = 'a'").fetchone()[0] == 1
+            assert conn.execute("SELECT COUNT(*) FROM run_view WHERE agent_id = ?", (a_id,)).fetchone()[0] == 1
             conn.close()
 
             await wait_for(pilot, lambda: len(table_rows(app, "agents-table")) == 1)
@@ -206,16 +210,17 @@ class TestAgents:
             await press(pilot, app, "ok")
             await wait_dialog(pilot, app, "History deleted")
             conn = db.connect()
-            assert conn.execute("SELECT COUNT(*) FROM runs WHERE agent = 'b'").fetchone()[0] == 0
+            assert conn.execute("SELECT COUNT(*) FROM run_view WHERE agent_id = ?", (b_id,)).fetchone()[0] == 0
             conn.close()
 
         drive(scenario)
 
-    def test_rename_moves_the_agent_and_its_history(self, home):
+    def test_rename_keeps_the_id_and_so_the_history(self, home):
         key = config.add_agent("nas1")
+        agent_id = config.find_agent("nas1").id
         db.init_db()
         conn = db.connect()
-        conn.execute("INSERT INTO runs (agent, job_name, status, started_at, updated_at) VALUES ('nas1', 'J', 'success', 1, 1)")
+        seed_run(conn, agent=agent_id, agent_name="nas1", started=1)
         conn.close()
 
         async def scenario(app, pilot):
@@ -226,8 +231,9 @@ class TestAgents:
             await press(pilot, app, "save")
             await wait_for(pilot, lambda: [a.name for a in config.load_agents()] == ["nas-one"])
             assert config.load_agents()[0].key_hash == config.hash_key(key)
+            assert config.load_agents()[0].id == agent_id
             conn = db.connect()
-            assert conn.execute("SELECT agent FROM runs").fetchone()[0] == "nas-one"
+            assert conn.execute("SELECT agent_id FROM run_view").fetchone()[0] == agent_id
             conn.close()
             await wait_for(pilot, lambda: table_rows(app, "agents-table")[0][0] == "nas-one")
 
@@ -247,6 +253,18 @@ class TestAgents:
 
         drive(scenario)
         assert [a.name for a in config.load_agents()] == ["a", "b"]
+
+    def test_add_missing_ids_repairs_a_registry_without_them(self, home):
+        settings.AGENTS_PATH.write_text("agents:\n- name: old\n  key_hash: " + "a" * 64 + "\n")
+
+        async def scenario(app, pilot):
+            await wait_for(pilot, lambda: "invalid" in str(app.query_one("#agents-note", Static).render()))
+            app.query_one("#adopt", Button).press()
+            await wait_dialog(pilot, app, "Add missing ids")
+            assert "old" in dialog_text(app)
+            await wait_for(pilot, lambda: [a.name for a in config.load_agents()] == ["old"])
+
+        drive(scenario)
 
     def test_nothing_selected_explains_itself(self, home):
         async def scenario(app, pilot):
@@ -268,8 +286,8 @@ class TestAgents:
         db.init_db()
         conn = db.connect()
         import time
-        conn.execute("INSERT INTO agent_state (name, last_heartbeat, updated_at, status) VALUES ('nas1', ?, 1, 'up')",
-                     (time.time() - 600,))
+        conn.execute("INSERT INTO agents (id, name, last_heartbeat, updated_at, status) VALUES (?, 'nas1', ?, 1, 'up')",
+                     (config.find_agent("nas1").id, time.time() - 600))
         conn.close()
 
         async def scenario(app, pilot):
@@ -430,7 +448,7 @@ class TestFiles:
 
     def test_editing_agents_yaml_applies_live_without_a_restart_prompt(self, home, editor):
         config.add_agent("nas1")
-        editor.script = ["agents:\n- name: other\n  key_hash: " + "a" * 64 + "\n"]
+        editor.script = [f"agents:\n- id: {aid('other')}\n  name: other\n  key_hash: " + "a" * 64 + "\n"]
 
         async def scenario(app, pilot):
             await open_tab(pilot, "2")
@@ -501,15 +519,12 @@ def db_button(app, button_id):
 
 def add_run(agent="a", job="J"):
     conn = db.connect()
-    conn.execute("INSERT INTO runs (agent, job_name, status, started_at, updated_at) VALUES (?, ?, 'success', 1, 1)",
-                 (agent, job))
+    seed_run(conn, agent=agent, job=job, started=1, runtime=None)
     conn.close()
 
 
 def add_run_id(conn, agent, job, started, target=""):
-    return conn.execute(
-        "INSERT INTO runs (agent, job_name, target_label, status, started_at, updated_at) "
-        "VALUES (?, ?, ?, 'success', ?, ?)", (agent, job, target, started, started)).lastrowid
+    return seed_run(conn, agent=agent, job=job, started=started, runtime=None, label=target)
 
 
 def count_runs():
@@ -742,7 +757,7 @@ class TestDatabase:
 
         drive(scenario)
         conn = db.connect()
-        assert [r["id"] for r in conn.execute("SELECT id FROM runs WHERE job_name = 'J1'")] == [ids[1]]
+        assert [r["id"] for r in conn.execute("SELECT id FROM run_view WHERE job_key = 'J1'")] == [ids[1]]
         assert count_runs() == 2
         conn.close()
 
@@ -978,8 +993,21 @@ class TestDiagnostics:
         drive(scenario)
         assert sent[0].startswith("[TEST] JABS alert: agent nas1 is offline")
         conn = db.connect()
-        assert conn.execute("SELECT COUNT(*) FROM agent_state WHERE alert_count > 0").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM agents WHERE alert_count > 0").fetchone()[0] == 0
         conn.close()
+
+    def test_orphans_lists_history_that_nothing_configures(self, home):
+        db.init_db()
+        conn = db.connect()
+        seed_run(conn, agent="gone-id", agent_name="gone")
+        conn.close()
+
+        async def scenario(app, pilot):
+            await open_tab(pilot, "4")
+            app.query_one(DiagnosticsPane).query_one("#orphans", Button).press()
+            await wait_for(pilot, lambda: "gone-id" in log_text(app))
+
+        drive(scenario)
 
     def test_dev_server_confirms_then_hands_over_the_terminal(self, home, monkeypatch):
         ran = []

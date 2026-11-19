@@ -5,6 +5,8 @@ import pytest
 from app import __main__ as cli
 from app import config, db, maintenance, settings, tick
 
+from ..seed import add_run as seed_run, add_schedule, aid, ensure_agent, ensure_job
+
 
 def run_cli(capsys, *argv):
     code = cli.main(list(argv))
@@ -20,14 +22,14 @@ def conn(home):
     connection.close()
 
 
-def add_run(conn, agent="a", job="J", with_event=True):
-    cur = conn.execute(
-        "INSERT INTO runs (agent, job_name, status, started_at, updated_at) VALUES (?, ?, 'success', 100, 100)",
-        (agent, job))
-    if with_event:
-        conn.execute("INSERT INTO events (run_pk, event_type, timestamp, created_at) VALUES (?, 'heartbeat', 1, 1)",
-                     (cur.lastrowid,))
-    return cur.lastrowid
+def add_run(conn, agent="a", job="J", with_event=True, name=None):
+    """A run for `agent` (its id; `name` is its display name) with one heartbeat event."""
+    return seed_run(conn, agent=agent, agent_name=name, job=job, started=100, runtime=1,
+                    events=[("heartbeat", "")] if with_event else [])
+
+
+def registered_id(name):
+    return config.find_agent(name).id
 
 
 def count(conn, table):
@@ -76,16 +78,6 @@ class TestAgentEditing:
 
 
 class TestRenamingAnAgent:
-    def seed(self, conn, agent):
-        add_run(conn, agent=agent)
-        conn.execute("INSERT INTO agent_state (name, updated_at) VALUES (?, 1)", (agent,))
-        conn.execute("INSERT INTO agent_status_log (agent, ts, status) VALUES (?, 1, 'up')", (agent,))
-        conn.execute("INSERT INTO daily_runs VALUES ('2026-01-01', ?, 'success', 1)", (agent,))
-        conn.execute("INSERT INTO job_schedules VALUES (?, 'J', '0 3 * * *', 1)", (agent,))
-        conn.execute("INSERT INTO storage_samples VALUES (?, 'repo', 'r', '', 1, 5, NULL)", (agent,))
-        conn.execute("INSERT INTO job_targets VALUES (?, 'J', 'J', '/s', '/d', 1)", (agent,))
-        conn.execute("INSERT INTO job_config VALUES (?, 'J', '[]', 1)", (agent,))
-
     def test_registry_rename_keeps_key_and_settings(self, home):
         key = config.add_agent("old", grace_minutes=30, notes="n", host="H", allowed_ip="10.0.0.5")
         config.rename_agent("old", "new")
@@ -106,59 +98,50 @@ class TestRenamingAnAgent:
             config.rename_agent(old, new)
         assert settings.AGENTS_PATH.read_text() == before
 
-    def test_every_table_follows_the_new_name_and_others_are_untouched(self, conn):
+    def test_the_id_and_the_history_do_not_move(self, conn):
         config.add_agent("old")
-        config.add_agent("other")
-        self.seed(conn, "old")
-        self.seed(conn, "other")
-        conn.execute("INSERT INTO storage_samples VALUES ('dashboard', 'local', '/', '', 1, 5, 10)")
-        changed = maintenance.rename_agent("old", "new")
-        assert changed == {table: 1 for table, _ in maintenance.AGENT_NAME_COLUMNS}
-        for table, column in maintenance.AGENT_NAME_COLUMNS:
-            names = sorted(r[0] for r in conn.execute(f"SELECT {column} FROM {table}"))
-            assert "old" not in names and "new" in names and "other" in names, table
-        assert count(conn, "events") == 2
-        assert [a.name for a in config.load_agents()] == ["new", "other"]
+        agent_id = registered_id("old")
+        add_run(conn, agent=agent_id, name="old")
+        config.rename_agent("old", "new")
+        assert registered_id("new") == agent_id
+        assert conn.execute("SELECT COUNT(*) FROM run_view WHERE agent_id = ?", (agent_id,)).fetchone()[0] == 1
 
-    def test_without_a_database_only_the_registry_changes(self, home):
+    def test_a_new_agent_may_reuse_a_name_without_inheriting_history(self, conn):
         config.add_agent("old")
-        assert maintenance.rename_agent("old", "new") == {}
-        assert [a.name for a in config.load_agents()] == ["new"]
-
-    def test_a_name_with_stored_history_is_refused_and_nothing_changes(self, conn):
+        old_id = registered_id("old")
+        add_run(conn, agent=old_id, name="old")
+        config.rename_agent("old", "renamed")
         config.add_agent("old")
-        self.seed(conn, "old")
-        conn.execute("INSERT INTO storage_samples VALUES ('taken', 'repo', 'r', '', 1, 5, NULL)")
-        before = settings.AGENTS_PATH.read_text()
-        with pytest.raises(config.ConfigError, match="already has stored history \\(storage_samples\\)"):
-            maintenance.rename_agent("old", "taken")
-        assert settings.AGENTS_PATH.read_text() == before
-        assert conn.execute("SELECT COUNT(*) FROM runs WHERE agent = 'old'").fetchone()[0] == 1
-
-    def test_a_registry_failure_rolls_the_database_back(self, conn):
-        self.seed(conn, "old")      # "old" is not registered, so the registry step fails
-        with pytest.raises(config.ConfigError, match="not found"):
-            maintenance.rename_agent("old", "new")
-        assert conn.execute("SELECT COUNT(*) FROM runs WHERE agent = 'old'").fetchone()[0] == 1
-        assert conn.execute("SELECT COUNT(*) FROM runs WHERE agent = 'new'").fetchone()[0] == 0
+        assert registered_id("old") != old_id
+        assert conn.execute("SELECT COUNT(*) FROM run_view WHERE agent_id = ?", (registered_id("old"),)).fetchone()[0] == 0
 
 
 class TestDeletingHistory:
-    def test_delete_runs_for_a_job_removes_events_and_schedule_only_for_that_job(self, conn):
+    def test_delete_runs_for_a_job_removes_their_events_only_for_that_job(self, conn):
         add_run(conn, job="J1")
         add_run(conn, job="J2")
-        conn.execute("INSERT INTO job_schedules VALUES ('a', 'J1', '0 3 * * *', 1)")
-        conn.execute("INSERT INTO job_schedules VALUES ('a', 'J2', '0 3 * * *', 1)")
         assert maintenance.delete_runs(conn, "a", "J1") == 1
-        assert [r["job_name"] for r in conn.execute("SELECT job_name FROM runs")] == ["J2"]
+        assert [r["job_key"] for r in conn.execute("SELECT job_key FROM run_view")] == ["J2"]
         assert count(conn, "events") == 1
-        assert [r["job_name"] for r in conn.execute("SELECT job_name FROM job_schedules")] == ["J2"]
+
+    def test_a_job_the_agent_still_reports_stays_after_its_runs_go(self, conn):
+        add_run(conn, job="J1")
+        add_schedule(conn, "a", "J1", "0 3 * * *")
+        maintenance.delete_runs(conn, "a", "J1")
+        assert count(conn, "jobs") == 1 and count(conn, "job_schedules") == 1
+
+    def test_a_job_the_agent_dropped_goes_with_its_runs(self, conn):
+        add_run(conn, job="J1")
+        add_schedule(conn, "a", "J1", "0 3 * * *")
+        conn.execute("UPDATE jobs SET active = 0")
+        maintenance.delete_runs(conn, "a", "J1")
+        assert (count(conn, "jobs"), count(conn, "targets"), count(conn, "job_schedules")) == (0, 0, 0)
 
     def test_delete_all_runs_of_an_agent_keeps_other_agents(self, conn):
         add_run(conn, agent="a")
         add_run(conn, agent="b")
         assert maintenance.delete_runs(conn, "a") == 1
-        assert [r["agent"] for r in conn.execute("SELECT agent FROM runs")] == ["b"]
+        assert [r["agent_id"] for r in conn.execute("SELECT agent_id FROM run_view")] == ["b"]
 
     def test_deleting_nothing_does_not_bump_the_revision(self, conn):
         before = db.get_meta(conn, "rev")
@@ -168,17 +151,16 @@ class TestDeletingHistory:
     def test_agent_history_is_removed_everywhere(self, conn):
         add_run(conn, agent="a")
         add_run(conn, agent="b")
-        conn.execute("INSERT INTO agent_state (name, updated_at) VALUES ('a', 1)")
-        conn.execute("INSERT INTO agent_status_log (agent, ts, status) VALUES ('a', 1, 'up')")
+        add_schedule(conn, "a", "J", "0 3 * * *")
+        conn.execute("INSERT INTO agent_status_log (agent_id, ts, status) VALUES ('a', 1, 'up')")
         conn.execute("INSERT INTO daily_runs VALUES ('2026-01-01', 'a', 'success', 1)")
-        conn.execute("INSERT INTO job_targets VALUES ('a', 'J', 'J', '/s', '/d', 1)")
-        conn.execute("INSERT INTO job_config VALUES ('a', 'J', '[]', 1)")
         conn.execute("INSERT INTO storage_samples VALUES ('a', 'repo', 'r', '', 1, 5, NULL)")
         conn.execute("INSERT INTO storage_samples VALUES ('dashboard', 'local', '/', '', 1, 5, 10)")
         deleted = maintenance.delete_agent_history(conn, "a")
-        assert deleted["runs"] == 1 and deleted["storage_samples"] == 1
-        for table in ("agent_state", "agent_status_log", "daily_runs", "job_targets", "job_config"):
-            assert count(conn, table) == 0
+        assert deleted["runs"] == 1 and deleted["jobs"] == 1 and deleted["storage_samples"] == 1
+        for table in ("agent_status_log", "daily_runs", "job_schedules"):
+            assert count(conn, table) == 0, table
+        assert [r[0] for r in conn.execute("SELECT id FROM agents")] == ["b"]
         assert count(conn, "runs") == 1 and count(conn, "storage_samples") == 1
 
     def test_purge_storage_by_source_and_name(self, conn):
@@ -193,8 +175,53 @@ class TestDeletingHistory:
         add_run(conn, job="J1")
         add_run(conn, job="J1")
         conn.execute("INSERT INTO storage_samples VALUES ('a', 'repo', 'r1', '', 1, 5, NULL)")
-        assert maintenance.job_counts(conn) == [{"agent": "a", "job_name": "J1", "runs": 2}]
+        assert maintenance.job_counts(conn) == [
+            {"agent_id": "a", "agent": "a", "job_key": "J1", "job_name": "J1", "runs": 2}]
         assert maintenance.storage_series(conn) == [{"source": "a", "kind": "repo", "name": "r1", "samples": 1}]
+
+
+class TestResolveJob:
+    def test_a_key_or_a_name_finds_the_job(self, conn):
+        seed_run(conn, job="id-1", job_name="Nightly")
+        assert maintenance.resolve_job(conn, "a", "id-1") == "id-1"
+        assert maintenance.resolve_job(conn, "a", "Nightly") == "id-1"
+
+    def test_unknown_and_ambiguous_names_are_refused(self, conn):
+        seed_run(conn, job="id-1", job_name="Same")
+        seed_run(conn, job="id-2", job_name="Same")
+        with pytest.raises(db.DbError, match="no job"):
+            maintenance.resolve_job(conn, "a", "ghost")
+        with pytest.raises(db.DbError, match="id-1, id-2"):
+            maintenance.resolve_job(conn, "a", "Same")
+        assert maintenance.resolve_job(conn, "a", "id-2") == "id-2"
+
+    def test_other_agents_jobs_are_not_found(self, conn):
+        seed_run(conn, agent="b", job="id-1")
+        with pytest.raises(db.DbError):
+            maintenance.resolve_job(conn, "a", "id-1")
+
+
+class TestOrphans:
+    def test_an_agent_missing_from_the_registry_is_reported_with_its_runs(self, conn):
+        add_run(conn, agent="gone")
+        add_run(conn, agent="here")
+        found = maintenance.orphans(conn, ["here"])
+        assert [(a["id"], a["runs"]) for a in found["agents"]] == [("gone", 1)] and found["jobs"] == []
+
+    def test_a_job_the_agent_no_longer_reports_is_listed(self, conn):
+        add_run(conn, agent="here", job="old")
+        add_run(conn, agent="here", job="current")
+        conn.execute("UPDATE jobs SET active = 0 WHERE job_key = 'old'")
+        found = maintenance.orphans(conn, ["here"])
+        assert [(j["job_key"], j["runs"]) for j in found["jobs"]] == [("old", 1)] and found["agents"] == []
+
+    def test_nothing_is_orphaned_when_everything_is_configured(self, conn):
+        add_run(conn, agent="here")
+        assert maintenance.orphans(conn, ["here"]) == {"agents": [], "jobs": []}
+
+    def test_an_empty_registry_reports_every_agent(self, conn):
+        add_run(conn, agent="x")
+        assert [a["id"] for a in maintenance.orphans(conn, [])["agents"]] == ["x"]
 
 
 class TestSingleRuns:
@@ -284,11 +311,11 @@ class TestRestore:
         assert result["safety_copy"].exists()
         fresh = db.connect()
         try:
-            assert [r["job_name"] for r in fresh.execute("SELECT job_name FROM runs")] == ["before"]
+            assert [r["job_name"] for r in fresh.execute("SELECT job_name FROM run_view")] == ["before"]
         finally:
             fresh.close()
         safety = sqlite3.connect(result["safety_copy"])
-        assert safety.execute("SELECT job_name FROM runs").fetchall() == [("after",)]
+        assert safety.execute("SELECT job_name FROM run_view").fetchall() == [("after",)]
         safety.close()
 
     def test_a_non_database_is_refused_and_nothing_changes(self, conn, home):
@@ -360,7 +387,7 @@ class TestCli:
         run_cli(capsys, "agent", "add", "nas1")
         db.init_db()
         conn = db.connect()
-        add_run(conn, agent="nas1")
+        add_run(conn, agent=registered_id("nas1"), name="nas1")
         conn.close()
         assert run_cli(capsys, "agent", "remove", "nas1")[0] == 2
         assert config.load_agents()
@@ -375,7 +402,7 @@ class TestCli:
         run_cli(capsys, "agent", "add", "nas1")
         db.init_db()
         conn = db.connect()
-        add_run(conn, agent="nas1")
+        add_run(conn, agent=registered_id("nas1"), name="nas1")
         conn.close()
         run_cli(capsys, "agent", "remove", "nas1", "--yes")
         conn = db.connect()
@@ -399,10 +426,12 @@ class TestCli:
         assert "last_tick_ts" in run_cli(capsys, "meta")[1]
 
     def test_runs_delete_and_storage_purge_need_confirmation(self, home, capsys):
+        run_cli(capsys, "agent", "add", "nas1")
         db.init_db()
         conn = db.connect()
-        add_run(conn, agent="nas1", job="J")
-        conn.execute("INSERT INTO storage_samples VALUES ('nas1', 'repo', 'r', '', 1, 5, NULL)")
+        agent_id = registered_id("nas1")
+        add_run(conn, agent=agent_id, name="nas1", job="J")
+        conn.execute("INSERT INTO storage_samples VALUES (?, 'repo', 'r', '', 1, 5, NULL)", (agent_id,))
         conn.close()
         assert run_cli(capsys, "runs", "delete", "--agent", "nas1")[0] == 2
         assert run_cli(capsys, "storage", "purge")[0] == 2
@@ -415,9 +444,12 @@ class TestCli:
         assert "daily rollup" in out and "ok" in out
 
     def test_runs_list_shows_ids_newest_first(self, home, capsys):
+        run_cli(capsys, "agent", "add", "a")
         db.init_db()
         conn = db.connect()
-        first, second = add_run(conn, job="J"), add_run(conn, job="J")
+        agent_id = registered_id("a")
+        first = add_run(conn, agent=agent_id, name="a", job="J")
+        second = add_run(conn, agent=agent_id, name="a", job="J")
         conn.execute("UPDATE runs SET started_at = id")
         conn.close()
         code, out, _ = run_cli(capsys, "runs", "list", "--agent", "a", "--job", "J")
@@ -425,7 +457,8 @@ class TestCli:
         lines = out.strip().splitlines()
         assert [line.split("\t")[0] for line in lines] == [str(second), str(first)]
         assert all(line.split("\t")[-1] == "-" or line.split("\t")[-1] == "" for line in lines)
-        assert "no runs found" in run_cli(capsys, "runs", "list", "--agent", "ghost")[1]
+        code, _, err = run_cli(capsys, "runs", "list", "--agent", "ghost")
+        assert code == 1 and "not found" in err
 
     def test_runs_delete_by_id_needs_confirmation(self, home, capsys):
         db.init_db()
@@ -442,3 +475,25 @@ class TestCli:
     def test_runs_delete_rejects_ambiguous_or_empty_requests(self, home, capsys):
         assert run_cli(capsys, "runs", "delete", "--yes")[0] == 2
         assert run_cli(capsys, "runs", "delete", "--id", "1", "--agent", "a", "--yes")[0] == 2
+
+    def test_runs_commands_accept_a_job_name_or_key(self, home, capsys):
+        run_cli(capsys, "agent", "add", "a")
+        db.init_db()
+        conn = db.connect()
+        seed_run(conn, agent=registered_id("a"), agent_name="a", job="id-1", job_name="Nightly")
+        conn.close()
+        assert "success" in run_cli(capsys, "runs", "list", "--agent", "a", "--job", "Nightly")[1]
+        assert "success" in run_cli(capsys, "runs", "list", "--agent", "a", "--job", "id-1")[1]
+        code, _, err = run_cli(capsys, "runs", "list", "--agent", "a", "--job", "nope")
+        assert code == 1 and "no job" in err
+
+    def test_orphans_lists_removed_agents(self, home, capsys):
+        run_cli(capsys, "agent", "add", "a")
+        db.init_db()
+        conn = db.connect()
+        add_run(conn, agent="removed-id", name="removed")
+        conn.close()
+        code, out, _ = run_cli(capsys, "orphans")
+        assert code == 0 and "removed" in out and "removed-id" in out
+        run_cli(capsys, "reset", "--yes")
+        assert "no orphaned history" in run_cli(capsys, "orphans")[1]

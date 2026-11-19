@@ -1,4 +1,4 @@
-"""Per-(agent, job) rollups for the jobs table, ported from v1's /api/job_targets semantics."""
+"""Per-(agent, job) rollups for the jobs table."""
 
 import sqlite3
 from datetime import datetime
@@ -24,20 +24,16 @@ def representative_status(status_counts: dict) -> str:
     return next(iter(status_counts), "unknown")
 
 
-def _expressions(cron_schedule: Optional[str]) -> list:
-    return [expr.strip() for expr in (cron_schedule or "").split(",") if expr.strip()]
-
-
-def next_event(cron_schedule: Optional[str], last_started_at: Optional[float], tz: ZoneInfo,
+def next_event(crons: Optional[list], last_started_at: Optional[float], tz: ZoneInfo,
                now: float) -> tuple:
-    """Return (next_run_epoch or None, drifted) for a comma-separated cron schedule.
+    """Return (next_run_epoch or None, drifted) for a list of cron expressions.
 
     drifted means the last run was not near any predicted occurrence, so the reported
     schedule is probably stale. Invalid expressions are skipped.
     """
     now_dt = datetime.fromtimestamp(now, tz)
     next_runs, valid = [], []
-    for expr in _expressions(cron_schedule):
+    for expr in crons or []:
         try:
             next_runs.append(croniter(expr, now_dt).get_next(datetime))
             valid.append(expr)
@@ -62,13 +58,14 @@ def _collect_runs(conn: sqlite3.Connection) -> dict:
     """Group run rows into runs: rows sharing a job_run_id are the targets of one invocation."""
     runs: dict = {}
     for row in conn.execute(
-        "SELECT id, agent, job_name, job_run_id, status, started_at, completed_at, runtime_seconds, "
-        "percent_complete, current_item, eta_seconds, error_message FROM runs ORDER BY started_at"
+        "SELECT id, agent_id, job_key, job_name, job_run_id, status, started_at, completed_at, runtime_seconds, "
+        "percent_complete, current_item, eta_seconds, error_message FROM run_view ORDER BY started_at"
     ):
-        job_key = (row["agent"], row["job_name"])
+        job_key = (row["agent_id"], row["job_key"])
         run = runs.setdefault(
             (job_key, row["job_run_id"] or row["id"]),
-            {"job_key": job_key, "started_at": row["started_at"], "counts": {}, "members": []},
+            {"job_key": job_key, "job_name": row["job_name"], "started_at": row["started_at"], "counts": {},
+             "members": []},
         )
         run["started_at"] = min(run["started_at"], row["started_at"])
         run["counts"][row["status"]] = run["counts"].get(row["status"], 0) + 1
@@ -108,9 +105,9 @@ def _error_message(run: dict) -> Optional[str]:
 
 
 def job_rollups(conn: sqlite3.Connection, tz: ZoneInfo, now: float, hosts: Optional[dict] = None) -> list:
-    """One row per (agent, job_name): latest run, recent history, status counts, next scheduled run.
+    """One row per (agent, job): latest run, recent history, status counts, next scheduled run.
 
-    `hosts` maps agent name to host; an agent missing from it is shown as its own host.
+    `hosts` maps agent id to host; an agent missing from it is shown by its id.
     Runs that share a job_run_id (several targets in one script invocation) count as one run
     starting at the earliest member, with the most noteworthy member status.
     """
@@ -118,6 +115,7 @@ def job_rollups(conn: sqlite3.Connection, tz: ZoneInfo, now: float, hosts: Optio
     for run in sorted(_collect_runs(conn).values(), key=lambda r: r["started_at"]):
         status = representative_status(run["counts"])
         entry = jobs.setdefault(run["job_key"], {"status_counts": {}, "recent": []})
+        entry["job_name"] = run["job_name"]
         entry["recent"].append({"status": status, "started_at": run["started_at"]})
         entry.update(
             last_started_at=run["started_at"], last_status=status,
@@ -129,14 +127,16 @@ def job_rollups(conn: sqlite3.Connection, tz: ZoneInfo, now: float, hosts: Optio
     for entry in jobs.values():
         entry["recent"] = entry["recent"][-RECENT_RUNS:]
 
-    schedules = {
-        (row["agent"], row["job_name"]): row["cron_schedule"]
-        for row in conn.execute("SELECT agent, job_name, cron_schedule FROM job_schedules")
-    }
+    schedules: dict = {}
+    for row in conn.execute("SELECT j.agent_id, j.job_key, s.cron FROM job_schedules s "
+                            "JOIN jobs j ON j.id = s.job_id WHERE s.enabled = 1 ORDER BY s.cron"):
+        schedules.setdefault((row["agent_id"], row["job_key"]), []).append(row["cron"])
+    names = {row["id"]: row["name"] for row in conn.execute("SELECT id, name FROM agents")}
     rows = []
-    for (agent, job_name), entry in jobs.items():
-        next_at, drifted = next_event(schedules.get((agent, job_name)), entry["last_started_at"], tz, now)
-        rows.append({"agent": agent, "host": (hosts or {}).get(agent, agent), "job_name": job_name, **entry,
+    for (agent_id, job_key), entry in jobs.items():
+        next_at, drifted = next_event(schedules.get((agent_id, job_key)), entry["last_started_at"], tz, now)
+        rows.append({"agent_id": agent_id, "agent": names.get(agent_id, agent_id),
+                     "host": (hosts or {}).get(agent_id) or names.get(agent_id, agent_id), "job_key": job_key, **entry,
                      "next_event_at": next_at, "schedule_drifted": drifted})
     rows.sort(key=lambda r: r["last_started_at"], reverse=True)
     return rows

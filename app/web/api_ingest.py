@@ -53,7 +53,24 @@ def _parse(model):
         return None, _error(f"Invalid value for '{field}': {first['msg']}", 400)
 
 
-@bp.post("/api/monitoring/events")
+@bp.post("/api/v2/heartbeat")
+def submit_heartbeat():
+    """The agent is alive: version, type and the machine it runs on."""
+    agent, error = _authenticate()
+    if error:
+        return error
+    payload, error = _parse(ingest.HeartbeatPayload)
+    if error:
+        return error
+    try:
+        with closing(db.connect()) as conn:
+            return jsonify(ingest.record_heartbeat(conn, agent, payload, time.time())), 201
+    except sqlite3.Error:
+        logger.exception("failed to record heartbeat from agent %s", agent.name)
+        return _error("Failed to process heartbeat", 500)
+
+
+@bp.post("/api/v2/events")
 def submit_event():
     agent, error = _authenticate()
     if error:
@@ -63,13 +80,13 @@ def submit_event():
         return error
     try:
         with closing(db.connect()) as conn:
-            return jsonify(ingest.record_event(conn, agent.name, payload, time.time())), 201
+            return jsonify(ingest.record_event(conn, agent, payload, time.time())), 201
     except sqlite3.Error:
         logger.exception("failed to record event from agent %s", agent.name)
         return _error("Failed to process event", 500)
 
 
-@bp.post("/api/monitoring/target-purged")
+@bp.post("/api/v2/purge")
 def target_purged():
     agent, error = _authenticate()
     if error:
@@ -77,13 +94,11 @@ def target_purged():
     payload, error = _parse(ingest.PurgePayload)
     if error:
         return error
-    if not payload.target_id:
-        return _error("Missing required field: target_id", 400)
     if not payload.clean_external_ids():
         return _error("Missing required field: external_ids (non-empty list)", 400)
     try:
         with closing(db.connect()) as conn:
-            return jsonify(ingest.record_purge(conn, agent.name, payload, time.time())), 200
+            return jsonify(ingest.record_purge(conn, agent, payload, time.time())), 200
     except sqlite3.Error:
         logger.exception("failed to record purge from agent %s", agent.name)
         return _error("Failed to record job target purge", 500)
@@ -102,9 +117,9 @@ def submit_storage():
     try:
         with closing(db.connect()) as conn:
             with db.transaction(conn):
-                if ingest.touch_agent(conn, agent.name, now, payload.hostname):
+                if ingest.touch_agent(conn, agent, now, payload.hostname):
                     db.bump_rev(conn)
-            stored = storage.store_samples(conn, storage.agent_samples(agent.name, payload, now))
+            stored = storage.store_samples(conn, storage.agent_samples(agent.id, payload, now))
     except sqlite3.Error:
         logger.exception("failed to record storage from agent %s", agent.name)
         return _error("Failed to record storage samples", 500)
@@ -122,7 +137,7 @@ def submit_jobs():
         return error
     try:
         with closing(db.connect()) as conn:
-            stored = ingest.record_jobs(conn, agent.name, payload, time.time())
+            stored = ingest.record_jobs(conn, agent, payload, time.time())
     except sqlite3.Error:
         logger.exception("failed to record jobs from agent %s", agent.name)
         return _error("Failed to record jobs", 500)
@@ -131,7 +146,7 @@ def submit_jobs():
 
 @bp.get("/api/heartbeat")
 def heartbeat():
-    """Health check polled by Uptime Kuma and other monitors; same shape as v1."""
+    """Health check polled by Uptime Kuma and other monitors; no key needed."""
     with closing(db.connect()) as conn:
         errors = conn.execute("SELECT COUNT(*) FROM events WHERE event_type = 'error'").fetchone()[0]
     return jsonify({

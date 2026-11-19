@@ -10,8 +10,9 @@ export const bucketOf = (status) => BUCKET_OF[status] || "other";
 
 export const AGENT_STATUS_LABEL = { up: "Up", down: "Down", new: "New", disabled: "Disabled", unknown: "No data" };
 
-export const agentHref = (name) => `/agents/${encodeURIComponent(name)}`;
-export const jobHref = (agent, job) => `${agentHref(agent)}/job?name=${encodeURIComponent(job)}`;
+// Pages are addressed by the agent's id and the job's key, which never change when a name does.
+export const agentHref = (agentId) => `/agents/${encodeURIComponent(agentId)}`;
+export const jobHref = (agentId, jobKey) => `${agentHref(agentId)}/jobs/${encodeURIComponent(jobKey)}`;
 
 export const HOST_SOURCE_LABEL = {
   reported: "reported by the agent", configured: "set in agents.yaml", agent: "the agent name; none reported or configured",

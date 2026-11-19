@@ -10,7 +10,8 @@ from app.web import create_app
 
 
 def event():
-    return {"version": "1.0", "agent_type": "Snapshot", "event_type": "heartbeat", "message": "hi"}
+    return {"version": "1.0", "agent_type": "Snapshot", "event_type": "heartbeat", "message": "hi",
+            "job_id": "job-1", "target_id": "T"}
 
 
 class TestRekey:
@@ -61,13 +62,16 @@ class TestRekey:
         db.init_db()
         client = create_app(config.load_config()).test_client()
         old = config.add_agent("nas1")
-        assert client.post("/api/monitoring/events", json=event(), headers={"X-API-Key": old}).status_code == 201
+        assert client.post("/api/v2/events", json=event(), headers={"X-API-Key": old}).status_code == 201
+        agent_id = config.find_agent("nas1").id
         new = config.rekey_agent("nas1")
-        assert client.post("/api/monitoring/events", json=event(), headers={"X-API-Key": old}).status_code == 403
-        assert client.post("/api/monitoring/events", json=event(), headers={"X-API-Key": new}).status_code == 201
+        assert config.find_agent("nas1").id == agent_id
+        assert client.post("/api/v2/events", json=event(), headers={"X-API-Key": old}).status_code == 403
+        assert client.post("/api/v2/events", json=event(), headers={"X-API-Key": new}).status_code == 201
         conn = db.connect()
         try:
-            assert conn.execute("SELECT COUNT(*) FROM agent_state WHERE name = 'nas1'").fetchone()[0] == 1
+            assert conn.execute("SELECT COUNT(*) FROM agents WHERE id = ?", (agent_id,)).fetchone()[0] == 1
+            assert conn.execute("SELECT COUNT(*) FROM jobs WHERE agent_id = ?", (agent_id,)).fetchone()[0] == 1
         finally:
             conn.close()
 
@@ -122,6 +126,6 @@ class TestInvalidRegistryFile:
         with caplog.at_level(logging.WARNING):
             client = create_app(config.load_config()).test_client()
             assert "no agents are loaded" in caplog.text
-            resp = client.post("/api/monitoring/events", json=event(), headers={"X-API-Key": key})
+            resp = client.post("/api/v2/events", json=event(), headers={"X-API-Key": key})
         assert resp.status_code == 403 and resp.get_json() == {"error": "Invalid API key"}
         assert "rejected an agent key while agents.yaml is invalid" in caplog.text

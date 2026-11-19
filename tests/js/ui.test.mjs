@@ -24,35 +24,34 @@ test("day labels are calendar days and do not shift with the viewer's timezone",
 
 test("a job's card rows list its schedule, source and destination", () => {
   const single = jobConfigRows({
-    job_name: "jim-home", cron_schedule: "0 0 * * *",
-    targets: [{ name: "jim-home", source: "/home/jim", destination: "s3:bucket/jim" }],
+    job_name: "jim-home", schedules: [{ cron: "0 0 * * *", enabled: true }],
+    targets: [{ label: "jim-home", source: "/home/jim", destination: "s3:bucket/jim" }],
   });
   assert.deepEqual(single, [
-    { label: "Schedule", text: "0 0 * * *" }, { label: "Source", text: "/home/jim" },
+    { label: "Schedule", text: "0 0 * * * (enabled)" }, { label: "Source", text: "/home/jim" },
     { label: "Destination", text: "s3:bucket/jim" },
   ]);
 });
 
 test("a job with several targets gets a heading per target, and missing data shows a dash", () => {
   const rows = jobConfigRows({
-    job_name: "sync", cron_schedule: null,
-    targets: [{ name: "a", source: "/a", destination: "nas:a" }, { name: "b", source: "nas:b", destination: "" }],
+    job_name: "sync", schedules: [],
+    targets: [{ label: "a", source: "/a", destination: "nas:a" }, { label: "b", source: "nas:b", destination: "" }],
   });
   assert.deepEqual(rows.map((r) => r.heading ?? `${r.label}=${r.text}`), [
-    "Schedule=–", "a", "Source=/a", "Destination=nas:a", "b", "Source=nas:b", "Destination=–",
+    "Schedule=none", "a", "Source=/a", "Destination=nas:a", "b", "Source=nas:b", "Destination=–",
   ]);
-  assert.deepEqual(jobConfigRows({ job_name: "x", cron_schedule: "* * * * *", targets: [] }).map((r) => r.text),
-    ["* * * * *", "–", "–"]);
+  assert.deepEqual(jobConfigRows({ job_name: "x", schedules: [], targets: [] }).map((r) => r.text),
+    ["none", "–", "–"]);
 });
 
 test("each reported schedule is marked enabled or disabled", () => {
-  const text = (schedules, cron = null) => jobConfigRows({ job_name: "j", cron_schedule: cron, schedules, targets: [] })[0].text;
+  const text = (schedules) => jobConfigRows({ job_name: "j", schedules, targets: [] })[0].text;
   assert.equal(text([{ cron: "0 2 * * *", enabled: true }, { cron: "0 9 * * 1", enabled: false }]),
     "0 2 * * * (enabled)\n0 9 * * 1 (disabled)");
-  assert.equal(text([{ cron: "0 2 * * *", enabled: false }], "0 2 * * *"), "0 2 * * * (disabled)");
-  assert.equal(text([], "0 2 * * *"), "none");   // the agent says it has none; a stale heartbeat cron is ignored
-  assert.equal(text(null, "0 2 * * *"), "0 2 * * *");   // an agent that does not report schedules
-  assert.equal(text(undefined), "–");
+  assert.equal(text([{ cron: "0 2 * * *", enabled: false }]), "0 2 * * * (disabled)");
+  assert.equal(text([]), "none");
+  assert.equal(text(undefined), "none");
 });
 
 test("durations", () => {
@@ -128,10 +127,10 @@ test("run statuses fold into display buckets like the server does", () => {
   assert.equal(bucketOf(undefined), "other");
 });
 
-test("links escape agent and job names", () => {
-  assert.equal(agentHref("nas 1"), "/agents/nas%201");
-  assert.equal(jobHref("nas1", "photos & docs/2026"), "/agents/nas1/job?name=photos%20%26%20docs%2F2026");
-  assert.equal(jobHref("nas1", ""), "/agents/nas1/job?name=");
+test("links use the agent id and the job key, escaped", () => {
+  assert.equal(agentHref("3f2a-1"), "/agents/3f2a-1");
+  assert.equal(agentHref("a b"), "/agents/a%20b");
+  assert.equal(jobHref("3f2a-1", "photos & docs/2026"), "/agents/3f2a-1/jobs/photos%20%26%20docs%2F2026");
 });
 
 test("status totals text groups statuses and omits zeros", () => {

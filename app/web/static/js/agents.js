@@ -83,7 +83,7 @@ function updateCard(card, agent) {
   const r = card._refs;
   const data = state.data;
   setText(r.nameLink, agent.name);
-  if (r.nameLink.getAttribute("href") !== agentHref(agent.name)) r.nameLink.href = agentHref(agent.name);
+  if (r.nameLink.getAttribute("href") !== agentHref(agent.id)) r.nameLink.href = agentHref(agent.id);
   setText(r.pill, STATUS_LABEL[agent.status]);
   setClass(r.pill, "pill pill-" + agent.status);
   const meta = [agent.agent_type, agent.version ? "v" + agent.version : null];
@@ -176,7 +176,7 @@ function render(data) {
     ? groupByHost(data.agents, (members) => ({ down: members.filter((a) => a.status === "down").length }))
     : data.agents;
   reconcile($("agent-grid"), items, {
-    key: (item) => (item.group ? groupKey(item) : item.name),
+    key: (item) => (item.group ? groupKey(item) : item.id),
     create: (item) => (item.group ? createGroupHead() : createCard()),
     update: (node, item) => (item.group ? updateGroupHead(node, item) : updateCard(node, item)),
   });

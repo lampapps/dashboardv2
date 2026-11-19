@@ -1,3 +1,4 @@
+import re
 import sqlite3
 
 from app import __main__ as cli
@@ -66,18 +67,31 @@ class TestCli:
         assert code == 1
         assert "not found" in err
 
-    def test_agent_rename_moves_history_and_keeps_the_key(self, home, capsys):
+    def test_agent_rename_keeps_the_id_the_key_and_the_history(self, home, capsys):
+        from tests.seed import add_run
         key = run_cli(capsys, "agent", "add", "old")[1].strip().rsplit(" ", 1)[-1]
         run_cli(capsys, "initdb")
+        agent_id = config.find_agent("old").id
         conn = db.connect()
-        conn.execute("INSERT INTO runs (agent, job_name, status, started_at, updated_at) VALUES ('old', 'J', 'success', 1, 1)")
+        add_run(conn, agent=agent_id, agent_name="old")
         conn.close()
         code, out, _ = run_cli(capsys, "agent", "rename", "old", "new")
-        assert code == 0 and "renamed to 'new'" in out and "runs 1" in out
-        assert config.load_agents()[0].key_hash == config.hash_key(key)
+        assert code == 0 and "renamed to 'new'" in out
+        agent = config.load_agents()[0]
+        assert (agent.id, agent.key_hash) == (agent_id, config.hash_key(key))
         conn = db.connect()
-        assert conn.execute("SELECT agent FROM runs").fetchone()[0] == "new"
+        assert conn.execute("SELECT agent_id FROM run_view").fetchone()[0] == agent_id
         conn.close()
+
+    def test_agent_adopt_adds_missing_ids(self, home, capsys):
+        run_cli(capsys, "agent", "add", "a")
+        text = settings.AGENTS_PATH.read_text()
+        settings.AGENTS_PATH.write_text(re.sub(r"- id: \S+\n\s+", "- ", text))
+        assert run_cli(capsys, "agent", "list")[0] == 1
+        code, out, _ = run_cli(capsys, "agent", "adopt")
+        assert code == 0 and "gave an id to 1 agent(s): a" in out
+        assert config.load_agents()[0].id
+        assert "already has an id" in run_cli(capsys, "agent", "adopt")[1]
 
     def test_agent_rename_to_an_existing_name_fails(self, home, capsys):
         run_cli(capsys, "agent", "add", "a")

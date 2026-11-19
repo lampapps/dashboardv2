@@ -45,12 +45,13 @@ class DiagnosticsPane(Pane):
     TAB_TITLE = "4 Diagnostics"
     ACTIONS = {
         "tick": "do_tick", "testmail": "do_testmail", "web": "do_dev_server", "meta": "do_meta",
+        "orphans": "do_orphans",
         "diagnostics.digest": "do_digest", "diagnostics.alert": "do_alert", "diagnostics.key": "do_key",
     }
     BINDINGS = [
         Binding("t", "tick", "Run tick"), Binding("m", "testmail", "Test mail"), Binding("p", "digest", "Digest"),
         Binding("a", "alert", "Alert mail"), Binding("k", "key", "Check key"), Binding("e", "meta", "State"),
-        Binding("w", "dev_server", "Dev server"), Binding("c", "clear", "Clear"),
+        Binding("w", "dev_server", "Dev server"), Binding("c", "clear", "Clear"), Binding("o", "orphans", "Orphans"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -61,6 +62,7 @@ class DiagnosticsPane(Pane):
             yield Button("Alert mail", id="alert")
             yield Button("Check key", id="key")
             yield Button("State", id="meta")
+            yield Button("Orphans", id="orphans")
             yield Button("Dev server", id="dev_server")
             yield Button("Clear", id="clear")
         yield RichLog(id="output", wrap=True, markup=False, highlight=False)
@@ -170,6 +172,19 @@ class DiagnosticsPane(Pane):
             self.flush_logs()
             audit("test alert mail", agent=name, sent=sent)
 
+    async def do_orphans(self) -> None:
+        agents = await asyncio.to_thread(config.load_agents)
+        found = await asyncio.to_thread(run_db, maintenance.orphans, [a.id for a in agents])
+        self.heading("orphaned history")
+        for row in found["agents"]:
+            self.say(f"  agent {row['name']} ({row['id']}): {row['runs']} run(s); not in agents.yaml. Restore its entry, "
+                     "or remove its history (Agents tab: Remove, or `runs delete`).")
+        for row in found["jobs"]:
+            self.say(f"  job {row['agent']} / {row['job_name']} ({row['job_key']}): {row['runs']} run(s); the agent no "
+                     "longer reports it. Delete its runs in the Database tab if you do not need them.")
+        if not found["agents"] and not found["jobs"]:
+            self.say("  none")
+
     async def do_key(self) -> None:
         fields = [{"key": "key", "label": "API key to look up", "kind": "password",
                    "help": "Checked against the stored hashes and then discarded."}]
@@ -232,6 +247,9 @@ class DiagnosticsPane(Pane):
 
     def action_meta(self) -> None:
         self.admin.spawn(self.do_meta)
+
+    def action_orphans(self) -> None:
+        self.admin.spawn(self.do_orphans)
 
     def action_dev_server(self) -> None:
         self.admin.spawn(self.do_dev_server)

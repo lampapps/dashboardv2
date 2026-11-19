@@ -8,6 +8,8 @@ from app import __main__ as cli
 from app import activity, config, db, mailer, notify, settings, tick
 from app.config import AgentConfig, Config
 
+from ..seed import aid, ensure_agent, ensure_job, ensure_target
+
 NOW = 1_800_000_000.0  # 2027-01-15 08:00 UTC
 DAY = 86400.0
 
@@ -27,29 +29,35 @@ def make_config(email=None, **kw) -> Config:
 
 
 def agent(name="nas1", **kw) -> AgentConfig:
-    return AgentConfig(name=name, key_hash="0" * 64, **kw)
+    return AgentConfig(id=aid(name), name=name, key_hash="0" * 64, **kw)
 
 
 def set_state(conn, name="nas1", status="down", since=NOW - 7200, heartbeat=NOW - 10800, count=0, last_alert=None):
     conn.execute(
-        "INSERT OR REPLACE INTO agent_state (name, updated_at, status, status_since, last_heartbeat, alert_count, "
-        "last_alert_at) VALUES (?, ?, ?, ?, ?, ?, ?)", (name, NOW, status, since, heartbeat, count, last_alert))
+        "INSERT INTO agents (id, name, updated_at, status, status_since, last_heartbeat, alert_count, last_alert_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, "
+        "updated_at = excluded.updated_at, status = excluded.status, status_since = excluded.status_since, "
+        "last_heartbeat = excluded.last_heartbeat, alert_count = excluded.alert_count, "
+        "last_alert_at = excluded.last_alert_at",
+        (aid(name), name, NOW, status, since, heartbeat, count, last_alert))
 
 
 def log_status(conn, name, ts, status):
-    conn.execute("INSERT INTO agent_status_log (agent, ts, status, reason) VALUES (?, ?, ?, '')", (name, ts, status))
+    ensure_agent(conn, aid(name), name)
+    conn.execute("INSERT INTO agent_status_log (agent_id, ts, status, reason) VALUES (?, ?, ?, '')", (aid(name), ts, status))
 
 
 def add_run(conn, agent_name="nas1", job="job", status="success", started=NOW - 600, completed=NOW - 500,
             error=None, target=""):
+    target_pk = ensure_target(conn, ensure_job(conn, ensure_agent(conn, aid(agent_name), agent_name), job), "T", target)
     cursor = conn.execute(
-        "INSERT INTO runs (agent, job_name, target_label, status, started_at, completed_at, error_message, "
-        "updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (agent_name, job, target, status, started, completed, error, NOW))
+        "INSERT INTO runs (target_pk, status, started_at, completed_at, error_message, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)", (target_pk, status, started, completed, error, NOW))
     return cursor.lastrowid
 
 
 def state_of(conn, name="nas1"):
-    return conn.execute("SELECT alert_count, last_alert_at FROM agent_state WHERE name = ?", (name,)).fetchone()
+    return conn.execute("SELECT alert_count, last_alert_at FROM agents WHERE id = ?", (aid(name),)).fetchone()
 
 
 class Outbox:
@@ -319,7 +327,7 @@ class TestDigestData:
         log_status(conn, "nas1", NOW - 4000, "up")
         log_status(conn, "nas1", NOW - 3000, "down")
         log_status(conn, "nas1", NOW - 1000, "up")
-        data = notify.digest_data(conn, make_config(), [agent()], NOW - DAY, NOW)
+        data = notify.digest_data(conn, make_config(), [agent(), agent("nas2")], NOW - DAY, NOW)
         assert data["totals"] == {"success": 3, "failed": 1, "stopped": 1, "other": 0}
         assert data["per_agent"] == [
             {"agent": "nas1", "host": "nas1", "label": "nas1", "success": 1, "failed": 1, "stopped": 1, "other": 0},
@@ -339,13 +347,13 @@ class TestDigestData:
     def test_problem_list_is_capped(self, conn):
         for i in range(notify.MAX_DIGEST_PROBLEMS + 5):
             add_run(conn, status="failed", completed=NOW - 100 - i)
-        data = notify.digest_data(conn, make_config(), [], NOW - DAY, NOW)
+        data = notify.digest_data(conn, make_config(), [agent()], NOW - DAY, NOW)
         assert len(data["problems"]) == notify.MAX_DIGEST_PROBLEMS and data["problems_more"] == 5
         assert data["totals"]["failed"] == notify.MAX_DIGEST_PROBLEMS + 5
 
     def test_long_errors_are_truncated(self, conn):
         add_run(conn, status="failed", error="x" * 1000)
-        assert len(notify.digest_data(conn, make_config(), [], NOW - DAY, NOW)["problems"][0]["error"]) == 200
+        assert len(notify.digest_data(conn, make_config(), [agent()], NOW - DAY, NOW)["problems"][0]["error"]) == 200
 
 
 class TestDigestTask:
@@ -456,12 +464,13 @@ class TestRunsPurge:
         activity.rollup_daily(conn, self.TZ, NOW - DAY, 30)  # a stale earlier rollup
         conn.execute("UPDATE runs SET status = 'failed' WHERE id = ?", (run,))
         self.purge(conn)
-        row = conn.execute("SELECT bucket, runs FROM daily_runs WHERE agent = 'nas1'").fetchall()
+        row = conn.execute("SELECT bucket, runs FROM daily_runs WHERE agent_id = ?", (aid("nas1"),)).fetchall()
         assert [(r["bucket"], r["runs"]) for r in row] == [("failed", 1)]
 
     def test_old_rollups_are_dropped(self, conn):
-        conn.execute("INSERT INTO daily_runs VALUES ('2025-01-01', 'nas1', 'success', 3)")
-        conn.execute("INSERT INTO daily_runs VALUES ('2026-06-01', 'nas1', 'success', 4)")
+        ensure_agent(conn, aid("nas1"), "nas1")
+        conn.execute("INSERT INTO daily_runs VALUES ('2025-01-01', ?, 'success', 3)", (aid("nas1"),))
+        conn.execute("INSERT INTO daily_runs VALUES ('2026-06-01', ?, 'success', 4)", (aid("nas1"),))
         self.purge(conn, rollup_days=365)
         assert [r["day"] for r in conn.execute("SELECT day FROM daily_runs")] == ["2026-06-01"]
 

@@ -308,7 +308,8 @@ class TestHttp:
         assert (resp.status_code, resp.get_json()) == (201, {"success": True, "stored": 2})
         conn = db.connect()
         try:  # stored, but the Overview only charts what config.yaml lists
-            assert conn.execute("SELECT COUNT(*) FROM storage_samples WHERE source = 'nas1'").fetchone()[0] == 2
+            agent_id = config.find_agent("nas1").id
+            assert conn.execute("SELECT COUNT(*) FROM storage_samples WHERE source = ?", (agent_id,)).fetchone()[0] == 2
         finally:
             conn.close()
         assert client.get("/api/ui/storage?range=24h").get_json()["current"] == []
@@ -328,7 +329,7 @@ class TestHttp:
     def test_reporting_counts_as_hearing_from_the_agent(self, client, key):
         self.post(client, key, {"samples": [{"name": "v", "used_bytes": 1}]})
         conn = db.connect()
-        assert conn.execute("SELECT last_heartbeat FROM agent_state WHERE name = 'nas1'").fetchone()[0] == NOW
+        assert conn.execute("SELECT last_heartbeat FROM agents WHERE id = ?", (config.find_agent("nas1").id,)).fetchone()[0] == NOW
         conn.close()
 
     def test_future_timestamps_are_clamped_to_now(self, client, key):

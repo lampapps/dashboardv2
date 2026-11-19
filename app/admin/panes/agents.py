@@ -19,12 +19,12 @@ from ..util import ago, run_db
 
 
 def _states() -> dict:
-    """{agent: {last_heartbeat, status}} from the database; empty when it does not exist or is too old."""
+    """{agent id: {last_heartbeat, status}} from the database; empty when it does not exist or is too old."""
     if not settings.DB_PATH.exists():
         return {}
     try:
-        return run_db(lambda conn: {row["name"]: dict(row) for row in conn.execute(
-            "SELECT name, last_heartbeat, status FROM agent_state")})
+        return run_db(lambda conn: {row["id"]: dict(row) for row in conn.execute(
+            "SELECT id, last_heartbeat, status FROM agents")})
     except sqlite3.Error:
         return {}
 
@@ -46,12 +46,13 @@ class AgentsPane(Pane):
     TAB_TITLE = "1 Agents"
     ACTIONS = {
         "agents.list": "reload", "agents.add": "do_add", "agents.set": "do_edit", "agents.rekey": "do_rekey",
-        "agents.rename": "do_rename",
+        "agents.rename": "do_rename", "agents.adopt": "do_adopt",
         "agents.enable": "do_toggle", "agents.disable": "do_toggle", "agents.remove": "do_remove",
     }
     BINDINGS = [
         Binding("a", "add", "Add"), Binding("e", "edit", "Edit"), Binding("t", "toggle", "Enable/disable"),
         Binding("k", "rekey", "New key"), Binding("n", "rename", "Rename"), Binding("x", "remove", "Remove"),
+        Binding("i", "adopt", "Add missing ids"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -63,6 +64,7 @@ class AgentsPane(Pane):
             yield Button("Enable / disable", id="toggle")
             yield Button("New key", id="rekey")
             yield Button("Rename", id="rename")
+            yield Button("Add missing ids", id="adopt")
             yield Button("Remove", id="remove", variant="error")
 
     def on_mount(self) -> None:
@@ -97,10 +99,10 @@ class AgentsPane(Pane):
         keep = self.selected()
         table.clear()
         for agent in agents:
-            state = states.get(agent.name, {})
+            state = states.get(agent.id, {})
             table.add_row(agent.name, agent.host or "-", "enabled" if agent.enabled else "DISABLED",
                           f"{agent.grace_minutes} min", agent.allowed_ip or "any", "on" if agent.offline_alerts else "off",
-                          ago(state.get("last_heartbeat")), state.get("status") or "-", key=agent.name)
+                          ago(state.get("last_heartbeat")), state.get("status") or "-", key=agent.id)
         if keep is not None:
             try:
                 table.move_cursor(row=table.get_row_index(keep))
@@ -108,18 +110,18 @@ class AgentsPane(Pane):
                 pass
 
     async def _agent(self) -> Optional[config.AgentConfig]:
-        name = self.selected()
-        if name is None:
+        agent_id = self.selected()
+        if agent_id is None:
             await self.admin.show("No agent selected", "Select an agent in the table first (or press a to add one).")
             return None
         agents = await asyncio.to_thread(config.load_agents)
-        return next((a for a in agents if a.name == name), None)
+        return next((a for a in agents if a.id == agent_id), None)
 
     # ---------------------------------------------------------------- actions
 
     async def do_add(self) -> None:
         fields = [
-            {"key": "name", "label": "Name", "kind": "text", "help": "Letters, digits, . _ and -. It identifies the agent's history."},
+            {"key": "name", "label": "Name", "kind": "text", "help": "Letters, digits, . _ and -. It can be changed later; the history follows the agent's id."},
             {"key": "host", "label": "Host", "kind": "text", "help": "The machine it runs on, shown beside its jobs. Empty: use the name."},
             {"key": "grace_minutes", "label": "Grace (minutes without contact before it counts as down)", "kind": "int", "value": 60},
             {"key": "notes", "label": "Notes", "kind": "text"},
@@ -191,11 +193,11 @@ class AgentsPane(Pane):
         if agent is None:
             return
         fields = [{"key": "name", "label": "New name", "kind": "text", "value": agent.name,
-                   "help": "Letters, digits, . _ and -. The key, settings and stored history move to the new name; "
+                   "help": "Letters, digits, . _ and -. The key, settings and stored history stay with the agent; "
                            "the agent needs no change."}]
 
         def submit(values: dict) -> str:
-            maintenance.rename_agent(agent.name, values["name"])
+            config.rename_agent(agent.name, values["name"])
             return values["name"]
 
         new_name = await self.admin.form(f"Rename agent {agent.name}", fields, submit, "Rename")
@@ -203,6 +205,13 @@ class AgentsPane(Pane):
             return
         audit("agent renamed", name=agent.name, new_name=new_name)
         await self.reload()
+
+    async def do_adopt(self) -> None:
+        adopted = await asyncio.to_thread(config.adopt_agents)
+        audit("agent ids adopted", agents=",".join(adopted) or "-")
+        await self.reload()
+        await self.admin.show("Add missing ids", f"Gave an id to: {', '.join(adopted)}" if adopted
+                              else "Every agent already has an id.")
 
     async def do_remove(self) -> None:
         agent = await self._agent()
@@ -217,7 +226,7 @@ class AgentsPane(Pane):
         await asyncio.to_thread(config.remove_agent, agent.name)
         deleted = None
         if purge and settings.DB_PATH.exists():
-            deleted = await asyncio.to_thread(run_db, maintenance.delete_agent_history, agent.name)
+            deleted = await asyncio.to_thread(run_db, maintenance.delete_agent_history, agent.id)
         audit("agent removed", name=agent.name, history_deleted=bool(purge))
         await self.reload()
         if deleted is not None:
@@ -239,6 +248,9 @@ class AgentsPane(Pane):
 
     def action_rename(self) -> None:
         self.admin.spawn(self.do_rename)
+
+    def action_adopt(self) -> None:
+        self.admin.spawn(self.do_adopt)
 
     def action_remove(self) -> None:
         self.admin.spawn(self.do_remove)

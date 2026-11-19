@@ -91,11 +91,11 @@ function updateRow(tr, job, tz) {
   const r = tr._refs;
   const bucket = bucketOf(job.last_status);
   setText(r.hostLink, job.host);
-  if (r.hostLink.getAttribute("href") !== agentHref(job.agent)) r.hostLink.href = agentHref(job.agent);
+  if (r.hostLink.getAttribute("href") !== agentHref(job.agent_id)) r.hostLink.href = agentHref(job.agent_id);
   setText(r.hostAgent, job.agent === job.host ? "" : job.agent);
   setHidden(r.hostAgent, job.agent === job.host);
   setText(r.jobLink, job.job_name || "(unnamed)");
-  if (r.jobLink.getAttribute("href") !== jobHref(job.agent, job.job_name)) r.jobLink.href = jobHref(job.agent, job.job_name);
+  if (r.jobLink.getAttribute("href") !== jobHref(job.agent_id, job.job_key)) r.jobLink.href = jobHref(job.agent_id, job.job_key);
   setText(r.pill, job.last_status);
   setClass(r.pill, "pill pill-" + bucket);
   setData(r.when, "ts", String(job.last_started_at));
@@ -168,7 +168,7 @@ export function createJobsTable({ table, body, empty, count, getTz, showHost = t
       ? groupByHost(rows, (members) => ({ failing: members.filter((j) => bucketOf(j.last_status) === "failed").length }))
       : rows;
     reconcile(body, items, {
-      key: (item) => (item.group ? groupKey(item) : item.agent + "\u0000" + item.job_name),
+      key: (item) => (item.group ? groupKey(item) : item.agent_id + "\u0000" + item.job_key),
       create: (item) => (item.group ? createGroupRow() : createRow()),
       update: (tr, item) => (item.group ? updateGroupRow(tr, item) : updateRow(tr, item, getTz())),
     });

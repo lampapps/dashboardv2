@@ -45,7 +45,7 @@ def _offline_message(conn: sqlite3.Connection, cfg: Config, agent, last_contact:
     """(subject, text, html) of the offline alert for an agent."""
     tz = ZoneInfo(cfg.timezone)
     alert = cfg.email.offline_alert
-    host = resolve_hosts(conn, [agent])[agent.name]
+    host = resolve_hosts(conn, [agent])[agent.id]
     text, html = mailer.render(
         "offline", agent=agent.name, host=host, label=_label(host, agent.name), notes=agent.notes, grace_minutes=agent.grace_minutes,
         last_contact=_fmt(last_contact, tz) if last_contact else "never",
@@ -57,7 +57,7 @@ def _offline_message(conn: sqlite3.Connection, cfg: Config, agent, last_contact:
 
 def preview_offline_alert(conn: sqlite3.Connection, cfg: Config, agent, now: float) -> tuple:
     """(subject, text, html) as the offline alert would read if the agent went down now; sends nothing."""
-    row = conn.execute("SELECT last_heartbeat FROM agent_state WHERE name = ?", (agent.name,)).fetchone()
+    row = conn.execute("SELECT last_heartbeat FROM agents WHERE id = ?", (agent.id,)).fetchone()
     last_contact = row["last_heartbeat"] if row else None
     return _offline_message(conn, cfg, agent, last_contact, now, 1, now)
 
@@ -72,15 +72,15 @@ def _send_offline_alert(conn: sqlite3.Connection, cfg: Config, agent, state: sql
     subject, text, html = _offline_message(conn, cfg, agent, state["last_heartbeat"], state["status_since"], count + 1, now)
     if mailer.send(cfg.email, subject, text, html):
         with db.transaction(conn):
-            conn.execute("UPDATE agent_state SET alert_count = alert_count + 1, last_alert_at = ? WHERE name = ?",
-                         (now, agent.name))
+            conn.execute("UPDATE agents SET alert_count = alert_count + 1, last_alert_at = ? WHERE id = ?",
+                         (now, agent.id))
 
 
 def _send_recovery(conn: sqlite3.Connection, cfg: Config, agent, state: sqlite3.Row, now: float) -> None:
     tz = ZoneInfo(cfg.timezone)
-    host = resolve_hosts(conn, [agent])[agent.name]
-    went_down = conn.execute("SELECT ts FROM agent_status_log WHERE agent = ? AND status = 'down' "
-                             "ORDER BY ts DESC LIMIT 1", (agent.name,)).fetchone()
+    host = resolve_hosts(conn, [agent])[agent.id]
+    went_down = conn.execute("SELECT ts FROM agent_status_log WHERE agent_id = ? AND status = 'down' "
+                             "ORDER BY ts DESC LIMIT 1", (agent.id,)).fetchone()
     back_at = state["status_since"] or now
     down_ts = went_down["ts"] if went_down else None
     text, html = mailer.render(
@@ -99,10 +99,10 @@ def offline_alerts(conn: sqlite3.Connection, cfg: Config, now: float) -> None:
         agents = load_agents()
     except ConfigError:
         return  # the web service already logs a broken agents.yaml
-    states = {row["name"]: row for row in conn.execute(
-        "SELECT name, status, status_since, last_heartbeat, alert_count, last_alert_at FROM agent_state")}
+    states = {row["id"]: row for row in conn.execute(
+        "SELECT id, status, status_since, last_heartbeat, alert_count, last_alert_at FROM agents")}
     for agent in agents:
-        state = states.get(agent.name)
+        state = states.get(agent.id)
         if state is None:
             continue
         if state["status"] == "down" and agent.offline_alerts:
@@ -111,8 +111,8 @@ def offline_alerts(conn: sqlite3.Connection, cfg: Config, now: float) -> None:
             if state["status"] == "up" and alert.send_recovery:
                 _send_recovery(conn, cfg, agent, state, now)
             with db.transaction(conn):
-                conn.execute("UPDATE agent_state SET alert_count = 0, last_alert_at = NULL WHERE name = ?",
-                             (agent.name,))
+                conn.execute("UPDATE agents SET alert_count = 0, last_alert_at = NULL WHERE id = ?",
+                             (agent.id,))
 
 
 # ---------------------------------------------------------------- digest
@@ -124,8 +124,9 @@ def digest_data(conn: sqlite3.Connection, cfg: Config, agents: list, since: floa
     totals = {b: 0 for b in ("success", "failed", "stopped", "other")}
     per_agent: dict = {}
     problems = []
+    names = {agent.id: agent.name for agent in agents}
     rows = conn.execute(
-        "SELECT agent, job_name, target_label, status, completed_at, error_message FROM runs "
+        "SELECT agent_id, job_name, target_label, status, completed_at, error_message FROM run_view "
         "WHERE completed_at >= ? AND completed_at <= ? ORDER BY completed_at DESC", (since, now)).fetchall()
     for row in rows:
         bucket = activity.bucket(row["status"])
@@ -134,25 +135,28 @@ def digest_data(conn: sqlite3.Connection, cfg: Config, agents: list, since: floa
         if bucket == "purged":
             bucket = "success"
         totals[bucket] += 1
-        host = hosts.get(row["agent"], row["agent"])
-        per_agent.setdefault(row["agent"], {
-            "agent": row["agent"], "host": host, "label": _label(host, row["agent"]), **{b: 0 for b in totals}})[bucket] += 1
+        agent_name = names.get(row["agent_id"])
+        if agent_name is None:  # an agent no longer in agents.yaml
+            continue
+        host = hosts.get(row["agent_id"], agent_name)
+        per_agent.setdefault(row["agent_id"], {
+            "agent": agent_name, "host": host, "label": _label(host, agent_name), **{b: 0 for b in totals}})[bucket] += 1
         if bucket in ("failed", "stopped"):
             problems.append({
-                "when": _fmt(row["completed_at"], tz), "agent": row["agent"], "host": host,
-                "label": _label(host, row["agent"]), "job": row["job_name"],
+                "when": _fmt(row["completed_at"], tz), "agent": agent_name, "host": host,
+                "label": _label(host, agent_name), "job": row["job_name"],
                 "target": row["target_label"], "status": row["status"],
                 "error": " ".join((row["error_message"] or "").split())[:MAX_ERROR_CHARS]})
 
     outages = []
     for agent in agents:
         name = agent.name
-        state = conn.execute("SELECT status FROM agent_state WHERE name = ?", (name,)).fetchone()
-        for start, end, kind in status.timeline(conn, name, since, now):
+        state = conn.execute("SELECT status FROM agents WHERE id = ?", (agent.id,)).fetchone()
+        for start, end, kind in status.timeline(conn, agent.id, since, now):
             if kind != "down":
                 continue
             ongoing = end >= now and state is not None and state["status"] == "down"
-            outages.append({"agent": name, "host": hosts[name], "label": _label(hosts[name], name), "start": _fmt(start, tz), "began_before": start <= since,
+            outages.append({"agent": name, "host": hosts[agent.id], "label": _label(hosts[agent.id], name), "start": _fmt(start, tz), "began_before": start <= since,
                             "end": _fmt(end, tz), "ongoing": ongoing, "duration": _duration(end - start),
                             "sort": start})
     outages.sort(key=lambda o: o["sort"])

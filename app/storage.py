@@ -219,10 +219,10 @@ class AgentStoragePayload(BaseModel):
         return clean_hostname(value)
 
 
-def agent_samples(agent: str, payload: AgentStoragePayload, now: float) -> list:
+def agent_samples(agent_id: str, payload: AgentStoragePayload, now: float) -> list:
     # A clock-skewed agent must not plot into the future.
     return [
-        _sample(agent, s.kind, s.name, s.series, min(s.timestamp or now, now), s.used_bytes, s.total_bytes)
+        _sample(agent_id, s.kind, s.name, s.series, min(s.timestamp or now, now), s.used_bytes, s.total_bytes)
         for s in payload.samples
     ]
 

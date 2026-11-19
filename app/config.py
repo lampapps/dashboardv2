@@ -8,6 +8,7 @@ import os
 import re
 import secrets
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Callable, Iterator, Literal, Optional, Union
 from urllib.parse import urlparse
@@ -22,12 +23,15 @@ from . import settings
 PathLike = Union[str, Path]
 
 AGENT_NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+AGENT_ID_PATTERN = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 AGENT_HOST_PATTERN = r"^([A-Za-z0-9][A-Za-z0-9._-]{0,63})?$"
 EMAIL_ADDRESS = re.compile(r"^[^@\s<>]+@[^@\s<>]+$")
 AGENTS_HEADER = (
     "# Agents allowed to report to the dashboard (API keys are stored only as SHA-256 hashes).\n"
     "# Add one with: python -m app agent add NAME\n"
-    "# Edits take effect without a restart. Comments are not preserved when the CLI rewrites this file.\n"
+    "# Each agent's id is what its history is stored under: never edit or copy it. Everything else, the\n"
+    "# name included, can be changed by hand. Edits take effect without a restart.\n"
+    "# Comments are not preserved when the CLI rewrites this file.\n"
 )
 
 
@@ -180,6 +184,8 @@ class Config(_Model):
 
 
 class AgentConfig(_Model):
+    # The identity the agent's history is stored under; made by `agent add`, never edited.
+    id: str = Field(pattern=AGENT_ID_PATTERN)
     name: str = Field(pattern=AGENT_NAME_PATTERN)
     # The machine the agent runs on; shown beside every job. Blank falls back to the agent name.
     host: str = Field("", pattern=AGENT_HOST_PATTERN)
@@ -201,14 +207,26 @@ class AgentConfig(_Model):
 class AgentsFile(_Model):
     agents: list[AgentConfig] = Field(default_factory=list)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _ids_present(cls, data: object) -> object:
+        if isinstance(data, dict) and isinstance(data.get("agents"), list):
+            missing = [str(a.get("name", "?")) for a in data["agents"] if isinstance(a, dict) and not a.get("id")]
+            if missing:
+                raise ValueError(f"no id for agent(s) {', '.join(missing)}; run `python -m app agent adopt` to add them")
+        return data
+
     @model_validator(mode="after")
     def _unique(self) -> "AgentsFile":
         names = [a.name for a in self.agents]
         hashes = [a.key_hash for a in self.agents]
+        ids = [a.id for a in self.agents]
         if len(set(names)) != len(names):
             raise ValueError("agent names must be unique")
         if len(set(hashes)) != len(hashes):
             raise ValueError("agent key hashes must be unique")
+        if len(set(ids)) != len(ids):
+            raise ValueError("agent ids must be unique (was an entry copied?)")
         return self
 
 
@@ -286,8 +304,8 @@ def add_agent(name: str, grace_minutes: int = 60, notes: str = "",
     path = Path(path or settings.AGENTS_PATH)
     key = generate_key()
     try:
-        entry = AgentConfig(name=name, host=host, key_hash=hash_key(key), grace_minutes=grace_minutes,
-                            notes=notes, allowed_ip=allowed_ip)
+        entry = AgentConfig(id=str(uuid.uuid4()), name=name, host=host, key_hash=hash_key(key),
+                            grace_minutes=grace_minutes, notes=notes, allowed_ip=allowed_ip)
     except ValidationError as exc:
         raise ConfigError(_format_errors(path, exc)) from exc
 
@@ -298,6 +316,30 @@ def add_agent(name: str, grace_minutes: int = 60, notes: str = "",
 
     _edit_agents(path, add)
     return key
+
+
+def find_agent(name: str, path: Optional[PathLike] = None) -> AgentConfig:
+    """A registered agent by its name."""
+    return _find(load_agents(path), name)
+
+
+def adopt_agents(path: Optional[PathLike] = None) -> list:
+    """Give every agents.yaml entry that has no id a new one; returns the names adopted."""
+    path = Path(path or settings.AGENTS_PATH)
+    with _registry_lock(path):
+        data = _read_yaml(path) if path.exists() else {}
+        adopted = []
+        for entry in data.get("agents") or []:
+            if isinstance(entry, dict) and not entry.get("id"):
+                entry["id"] = str(uuid.uuid4())
+                adopted.append(str(entry.get("name", "?")))
+        if adopted:
+            try:
+                agents = AgentsFile.model_validate(data).agents
+            except ValidationError as exc:
+                raise ConfigError(_format_errors(path, exc)) from exc
+            _write_agents(agents, path)
+    return adopted
 
 
 def _find(agents: list, name: str) -> AgentConfig:
@@ -373,7 +415,7 @@ def update_agent(name: str, path: Optional[PathLike] = None, **changes: object) 
 
 
 def rename_agent(name: str, new_name: str, path: Optional[PathLike] = None) -> AgentConfig:
-    """Change an agent's name in the registry; its key and other settings stay. Stored history is not touched here."""
+    """Change an agent's name in the registry; its id, key and history stay with it."""
     path = Path(path or settings.AGENTS_PATH)
 
     def rename(agents: list) -> AgentConfig:
@@ -393,7 +435,7 @@ def rename_agent(name: str, new_name: str, path: Optional[PathLike] = None) -> A
 
 
 def remove_agent(name: str, path: Optional[PathLike] = None) -> None:
-    """Delete an agent from the registry; its stored history is left alone."""
+    """Delete an agent from the registry; its stored history stays until `agent remove --purge-history`."""
     def remove(agents: list) -> None:
         agents.remove(_find(agents, name))
 

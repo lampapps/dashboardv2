@@ -87,8 +87,14 @@ def _cmd_reset(args: argparse.Namespace) -> int:
 def _cmd_agent_add(args: argparse.Namespace) -> int:
     key = config.add_agent(args.name, grace_minutes=args.grace_minutes, notes=args.notes,
                            allowed_ip=args.allowed_ip, host=args.host)
-    print(f"Agent '{args.name}' registered in {settings.AGENTS_PATH}")
+    print(f"Agent '{args.name}' registered in {settings.AGENTS_PATH} (id {config.find_agent(args.name).id})")
     print(f"API key (shown once; set it as JABS_AGENT_KEY on the agent): {key}")
+    return 0
+
+
+def _cmd_agent_adopt(_args: argparse.Namespace) -> int:
+    adopted = config.adopt_agents()
+    print(f"gave an id to {len(adopted)} agent(s): {', '.join(adopted)}" if adopted else "every agent already has an id")
     return 0
 
 
@@ -98,7 +104,7 @@ def _cmd_agent_list(_args: argparse.Namespace) -> int:
         print("no agents registered")
     for agent in agents:
         state = "enabled" if agent.enabled else "disabled"
-        print(f"{agent.name}\t{agent.host or '-'}\t{state}\tgrace {agent.grace_minutes} min\t{agent.notes}")
+        print(f"{agent.name}\t{agent.id}\t{agent.host or '-'}\t{state}\tgrace {agent.grace_minutes} min\t{agent.notes}")
     return 0
 
 
@@ -122,7 +128,7 @@ def _cmd_agent_disable(args: argparse.Namespace) -> int:
 
 
 def _cmd_agent_usage(_args: argparse.Namespace) -> int:
-    print("usage: python -m app agent {add,list,set,rename,rekey,enable,disable,remove} ...", file=sys.stderr)
+    print("usage: python -m app agent {add,list,set,rename,rekey,enable,disable,remove,adopt} ...", file=sys.stderr)
     return 2
 
 
@@ -147,10 +153,8 @@ def _cmd_agent_set(args: argparse.Namespace) -> int:
 
 
 def _cmd_agent_rename(args: argparse.Namespace) -> int:
-    changed = maintenance.rename_agent(args.name, args.new_name)
-    print(f"Agent '{args.name}' renamed to '{args.new_name}'; its key, settings and history carry over")
-    if changed:
-        print("rows renamed: " + ", ".join(f"{table} {count}" for table, count in changed.items()))
+    config.rename_agent(args.name, args.new_name)
+    print(f"Agent '{args.name}' renamed to '{args.new_name}'; its history is stored under its id, so it carries over")
     return 0
 
 
@@ -158,15 +162,33 @@ def _cmd_agent_remove(args: argparse.Namespace) -> int:
     if not args.yes:
         print(f"agent remove deletes '{args.name}' from the registry; re-run with --yes to confirm", file=sys.stderr)
         return 2
+    agent_id = config.find_agent(args.name).id
     config.remove_agent(args.name)
     print(f"Agent '{args.name}' removed; its key is rejected from now on")
     if args.purge_history:
         conn = db.connect()
         try:
-            deleted = maintenance.delete_agent_history(conn, args.name)
+            deleted = maintenance.delete_agent_history(conn, agent_id)
         finally:
             conn.close()
-        print("history deleted: " + ", ".join(f"{table} {count}" for table, count in deleted.items()))
+        print("history deleted: " + ", ".join(f"{kind} {count}" for kind, count in deleted.items()))
+    return 0
+
+
+def _cmd_orphans(_args: argparse.Namespace) -> int:
+    conn = db.connect()
+    try:
+        found = maintenance.orphans(conn, [a.id for a in config.load_agents()])
+    finally:
+        conn.close()
+    for row in found["agents"]:
+        print(f"agent\t{row['name']}\t{row['id']}\t{row['runs']} run(s)\tnot in agents.yaml; "
+              "restore its entry (same id) to see it again")
+    for row in found["jobs"]:
+        print(f"job\t{row['agent']}\t{row['job_name']}\t{row['job_key']}\t{row['runs']} run(s)\tno longer reported by its agent; "
+              f"`runs delete --agent {row['agent']} --job {row['job_key']} --yes` removes it")
+    if not found["agents"] and not found["jobs"]:
+        print("no orphaned history")
     return 0
 
 
@@ -228,9 +250,11 @@ def _cmd_runs_usage(_args: argparse.Namespace) -> int:
 
 
 def _cmd_runs_list(args: argparse.Namespace) -> int:
+    agent_id = config.find_agent(args.agent).id
     conn = db.connect()
     try:
-        runs = maintenance.list_runs(conn, args.agent, args.job, args.limit)
+        job_key = maintenance.resolve_job(conn, agent_id, args.job) if args.job is not None else None
+        runs = maintenance.list_runs(conn, agent_id, job_key, args.limit)
     finally:
         conn.close()
     for run in runs:
@@ -257,8 +281,12 @@ def _cmd_runs_delete(args: argparse.Namespace) -> int:
         return 2
     conn = db.connect()
     try:
-        deleted = (maintenance.delete_run_ids(conn, args.id) if args.id
-                   else maintenance.delete_runs(conn, args.agent, args.job))
+        if args.id:
+            deleted = maintenance.delete_run_ids(conn, args.id)
+        else:
+            agent_id = config.find_agent(args.agent).id
+            job_key = maintenance.resolve_job(conn, agent_id, args.job) if args.job is not None else None
+            deleted = maintenance.delete_runs(conn, agent_id, job_key)
     finally:
         conn.close()
     print(f"deleted {deleted} run(s) for {scope}")
@@ -276,7 +304,10 @@ def _cmd_storage_purge(args: argparse.Namespace) -> int:
         return 2
     conn = db.connect()
     try:
-        deleted = maintenance.purge_storage(conn, args.source, args.name)
+        source = args.source
+        if source and source != "dashboard":
+            source = {a.name: a.id for a in config.load_agents()}.get(source, source)  # samples are stored under the id
+        deleted = maintenance.purge_storage(conn, source, args.name)
     finally:
         conn.close()
     print(f"deleted {deleted} storage sample(s)")
@@ -309,6 +340,7 @@ def build_parser() -> argparse.ArgumentParser:
     add("vacuum", _cmd_vacuum, "reclaim free space in the database file")
     add("check-db", _cmd_check_db, "run the integrity check and show size and row counts")
     add("meta", _cmd_meta, "show the internal key/value state (last tick, digest time, revision)")
+    add("orphans", _cmd_orphans, "list stored history that nothing configures any more (removed agents and jobs)")
     add("reset", _cmd_reset, "delete the database and recreate it empty").add_argument(
         "--yes", action="store_true", help="confirm deleting all history")
 
@@ -367,6 +399,8 @@ def build_parser() -> argparse.ArgumentParser:
     rekey = agent_sub.add_parser("rekey", help="issue a new API key for an agent, keeping its name and history")
     rekey.add_argument("name")
     rekey.set_defaults(func=_cmd_agent_rekey)
+    agent_sub.add_parser("adopt", help="give every agents.yaml entry that has no id a new one").set_defaults(
+        func=_cmd_agent_adopt)
     for verb, func in (("enable", _cmd_agent_enable), ("disable", _cmd_agent_disable)):
         verb_parser = agent_sub.add_parser(verb, help=f"{verb} a registered agent")
         verb_parser.add_argument("name")

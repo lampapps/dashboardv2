@@ -6,10 +6,14 @@ from app.agents import resolve_hosts
 from app.config import AgentConfig, Config
 from app.web import create_app
 
+from ..seed import add_run, aid
+
+ID = aid("a")
+
 
 def event(job="Home-jim", status="backup_complete", run_id="r1"):
-    return {"version": "1.0", "agent_type": "Snapshot", "event_type": status, "run_id": run_id, "job_name": job,
-            "target_id": "restic-home", "duration_seconds": 5, "cron_schedule": "0 2 * * *"}
+    return {"version": "1.0", "agent_type": "Snapshot", "event_type": status, "run_id": run_id, "job_id": "id-" + job,
+            "job_name": job, "target_id": "restic-home", "duration_seconds": 5}
 
 
 @pytest.fixture
@@ -28,21 +32,21 @@ def fleet(home, client):
         "loner": config.add_agent("loner"),
     }
     for name in ("p3-snap", "nas-snap"):
-        assert client.post("/api/monitoring/events", json=event(), headers={"X-API-Key": keys[name]}).status_code == 201
-    client.post("/api/monitoring/events", json=event("pihole", run_id="r2"), headers={"X-API-Key": keys["p3-dns"]})
-    client.post("/api/monitoring/events", json=event("media", run_id="r3"), headers={"X-API-Key": keys["loner"]})
+        assert client.post("/api/v2/events", json=event(), headers={"X-API-Key": keys[name]}).status_code == 201
+    client.post("/api/v2/events", json=event("pihole", run_id="r2"), headers={"X-API-Key": keys["p3-dns"]})
+    client.post("/api/v2/events", json=event("media", run_id="r3"), headers={"X-API-Key": keys["loner"]})
     return keys
 
 
 class TestHostSetting:
     @pytest.mark.parametrize("host", ["P3Tiny", "nas-1.lan", "a", "x" * 64, ""])
     def test_valid(self, host):
-        assert AgentConfig(name="a", host=host, key_hash="0" * 64).host == host
+        assert AgentConfig(id=ID, name="a", host=host, key_hash="0" * 64).host == host
 
     @pytest.mark.parametrize("host", ["two words", "-leading", "x" * 65, "semi;colon", "new\nline", "<b>"])
     def test_invalid(self, host):
         with pytest.raises(ValueError):
-            AgentConfig(name="a", host=host, key_hash="0" * 64)
+            AgentConfig(id=ID, name="a", host=host, key_hash="0" * 64)
 
     def test_stored_in_agents_yaml(self, home):
         config.add_agent("a1", host="P3Tiny")
@@ -53,10 +57,11 @@ class TestHostSetting:
 
     def test_resolve_hosts_falls_back_to_the_agent_name(self, home):
         db.init_db()
-        agents = [AgentConfig(name="a1", host="P3Tiny", key_hash="0" * 64), AgentConfig(name="a2", key_hash="1" * 64)]
+        agents = [AgentConfig(id=aid("a1"), name="a1", host="P3Tiny", key_hash="0" * 64),
+                  AgentConfig(id=aid("a2"), name="a2", key_hash="1" * 64)]
         conn = db.connect()
         try:
-            assert resolve_hosts(conn, agents) == {"a1": "P3Tiny", "a2": "a2"}
+            assert resolve_hosts(conn, agents) == {aid("a1"): "P3Tiny", aid("a2"): "a2"}
         finally:
             conn.close()
 
@@ -66,7 +71,9 @@ class TestHostSetting:
         capsys.readouterr()
         assert cli.main(["agent", "list"]) == 0
         lines = capsys.readouterr().out.splitlines()
-        assert lines[0].split("\t")[:2] == ["snap1", "P3Tiny"] and lines[1].split("\t")[:2] == ["snap2", "-"]
+        first, second = lines[0].split("\t"), lines[1].split("\t")
+        assert [first[0], first[2]] == ["snap1", "P3Tiny"] and [second[0], second[2]] == ["snap2", "-"]
+        assert first[1] != second[1] and len(first[1]) == 36
 
     def test_cli_rejects_a_bad_host(self, home, capsys):
         assert cli.main(["agent", "add", "snap1", "--host", "bad host"]) == 1
@@ -97,13 +104,14 @@ class TestPayloads:
         assert (cards["loner"]["host"], cards["loner"]["config"]["host"]) == ("loner", "")
 
     def test_agent_detail_rows(self, client, fleet):
-        body = client.get("/api/ui/agents/nas-snap").get_json()
+        body = client.get(f"/api/ui/agents/{config.find_agent('nas-snap').id}").get_json()
         assert body["host"] == "NAS1" and {r["host"] for r in body["job_rows"]} == {"NAS1"}
 
     def test_job_summary_and_run_detail(self, client, fleet):
-        job = client.get("/api/ui/job?agent=nas-snap&name=Home-jim").get_json()
+        agent_id = config.find_agent("nas-snap").id
+        job = client.get(f"/api/ui/job?agent={agent_id}&job=id-Home-jim").get_json()
         assert (job["host"], job["rollup"]["host"]) == ("NAS1", "NAS1")
-        runs = client.get("/api/ui/job/runs?agent=nas-snap&name=Home-jim").get_json()["runs"]
+        runs = client.get(f"/api/ui/job/runs?agent={agent_id}&job=id-Home-jim").get_json()["runs"]
         run = client.get(f"/api/ui/runs/{runs[0]['id']}").get_json()["run"]
         assert (run["agent"], run["host"]) == ("nas-snap", "NAS1")
 
@@ -140,19 +148,19 @@ class TestEmails:
     def test_offline_alert_names_the_host(self, conn, monkeypatch):
         sent = []
         monkeypatch.setattr(notify.mailer, "send", lambda email, subject, text, html: sent.append((subject, text, html)) or True)
-        agent = AgentConfig(name="snap", host="P3Tiny", key_hash="0" * 64)
+        agent = AgentConfig(id=aid("snap"), name="snap", host="P3Tiny", key_hash="0" * 64)
         monkeypatch.setattr(notify, "load_agents", lambda: [agent])
-        conn.execute("INSERT INTO agent_state (name, updated_at, status, status_since, last_heartbeat) "
-                     "VALUES ('snap', ?, 'down', ?, ?)", (self.NOW, self.NOW - 7200, self.NOW - 10800))
+        conn.execute("INSERT INTO agents (id, name, updated_at, status, status_since, last_heartbeat) "
+                     "VALUES (?, 'snap', ?, 'down', ?, ?)", (aid("snap"), self.NOW, self.NOW - 7200, self.NOW - 10800))
         notify.offline_alerts(conn, self.cfg(), self.NOW)
         (subject, text, html), = sent
         assert subject == "JABS alert: agent P3Tiny / snap is offline"
         assert "Host:           P3Tiny" in text and "Agent:          snap" in text and ">P3Tiny<" in html
 
     def test_digest_lines_name_the_host(self, conn):
-        agents = [AgentConfig(name="snap", host="P3Tiny", key_hash="0" * 64)]
-        conn.execute("INSERT INTO runs (agent, job_name, status, started_at, completed_at, updated_at) "
-                     "VALUES ('snap', 'Home-jim', 'failed', ?, ?, ?)", (self.NOW - 200, self.NOW - 100, self.NOW))
+        agents = [AgentConfig(id=aid("snap"), name="snap", host="P3Tiny", key_hash="0" * 64)]
+        add_run(conn, agent=aid("snap"), agent_name="snap", job="id-Home-jim", job_name="Home-jim", status="failed",
+                started=self.NOW - 200, runtime=100)
         data = notify.digest_data(conn, self.cfg(), agents, self.NOW - 86400, self.NOW)
         assert data["problems"][0]["label"] == "P3Tiny / snap" and data["per_agent"][0]["host"] == "P3Tiny"
 
@@ -163,7 +171,7 @@ class TestReportedHostname:
         return config.add_agent("snap", host="configured-host")
 
     def post_event(self, client, key, **extra):
-        return client.post("/api/monitoring/events", json={**event(), **extra}, headers={"X-API-Key": key})
+        return client.post("/api/v2/events", json={**event(), **extra}, headers={"X-API-Key": key})
 
     def hosts(self, client):
         return {r["agent"]: r["host"] for r in client.get("/api/ui/overview").get_json()["jobs"]}
@@ -171,7 +179,7 @@ class TestReportedHostname:
     def stored(self):
         conn = db.connect()
         try:
-            return conn.execute("SELECT hostname FROM agent_state WHERE name = 'snap'").fetchone()[0]
+            return conn.execute("SELECT hostname FROM agents WHERE id = ?", (config.find_agent("snap").id,)).fetchone()[0]
         finally:
             conn.close()
 
@@ -207,9 +215,10 @@ class TestReportedHostname:
     def test_a_new_hostname_is_a_change_but_the_same_one_is_not(self, client, key):
         conn = db.connect()
         try:
-            ingest.touch_agent(conn, "snap", 1000.0, "A")
-            assert ingest.touch_agent(conn, "snap", 1001.0, "A") is False
-            assert ingest.touch_agent(conn, "snap", 1002.0, "B") is True
+            agent = config.find_agent("snap")
+            ingest.touch_agent(conn, agent, 1000.0, "A")
+            assert ingest.touch_agent(conn, agent, 1001.0, "A") is False
+            assert ingest.touch_agent(conn, agent, 1002.0, "B") is True
         finally:
             conn.close()
 
@@ -223,6 +232,6 @@ class TestReportedHostname:
 
     def test_agent_without_any_host_is_shown_under_its_name(self, client, home):
         key = config.add_agent("plain")
-        client.post("/api/monitoring/events", json=event(), headers={"X-API-Key": key})
+        client.post("/api/v2/events", json=event(), headers={"X-API-Key": key})
         cards = {a["name"]: a for a in client.get("/api/ui/agents?range=7d").get_json()["agents"]}
         assert (cards["plain"]["host"], cards["plain"]["host_source"]) == ("plain", "agent")

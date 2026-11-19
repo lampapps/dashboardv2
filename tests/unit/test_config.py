@@ -1,3 +1,4 @@
+import re
 import pytest
 
 from app import config
@@ -64,6 +65,10 @@ class TestBadges:
             config.load_config(path)
 
 
+ID_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+ID_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+
+
 class TestAgents:
     def test_missing_file_means_no_agents(self, tmp_path):
         assert config.load_agents(tmp_path / "agents.yaml") == []
@@ -109,9 +114,48 @@ class TestAgents:
     def test_duplicate_hashes_in_the_file_are_rejected(self, tmp_path):
         h = "a" * 64
         path = write(tmp_path / "agents.yaml", (
-            f"agents:\n  - name: a\n    key_hash: {h}\n  - name: b\n    key_hash: {h}\n"))
+            f"agents:\n  - id: {ID_A}\n    name: a\n    key_hash: {h}\n"
+            f"  - id: {ID_B}\n    name: b\n    key_hash: {h}\n"))
         with pytest.raises(config.ConfigError, match="unique"):
             config.load_agents(path)
+
+    def test_every_agent_gets_an_id_that_is_not_its_name_or_key(self, tmp_path):
+        path = tmp_path / "agents.yaml"
+        key = config.add_agent("a", path=path)
+        (agent,) = config.load_agents(path)
+        assert re.fullmatch(config.AGENT_ID_PATTERN, agent.id)
+        assert agent.id not in (agent.name, key, agent.key_hash)
+        assert config.add_agent("b", path=path) and config.load_agents(path)[1].id != agent.id
+
+    def test_duplicate_ids_are_rejected(self, tmp_path):
+        path = write(tmp_path / "agents.yaml", (
+            f"agents:\n  - id: {ID_A}\n    name: a\n    key_hash: {'a' * 64}\n"
+            f"  - id: {ID_A}\n    name: b\n    key_hash: {'b' * 64}\n"))
+        with pytest.raises(config.ConfigError, match="unique"):
+            config.load_agents(path)
+
+    def test_an_agent_without_an_id_is_rejected_with_the_fix(self, tmp_path):
+        path = write(tmp_path / "agents.yaml", f"agents:\n  - name: a\n    key_hash: {'a' * 64}\n")
+        with pytest.raises(config.ConfigError, match="agent adopt"):
+            config.load_agents(path)
+
+    def test_adopt_gives_missing_ids_and_keeps_everything_else(self, tmp_path):
+        path = write(tmp_path / "agents.yaml", (
+            f"# my agents\nagents:\n  - id: {ID_A}\n    name: a\n    key_hash: {'a' * 64}\n"
+            f"  - name: b\n    key_hash: {'b' * 64}\n    notes: keep me\n"))
+        assert config.adopt_agents(path) == ["b"]
+        a, b = config.load_agents(path)
+        assert a.id == ID_A and b.id != ID_A and b.notes == "keep me"
+        assert config.adopt_agents(path) == []
+
+    def test_rename_changes_only_the_name(self, tmp_path):
+        path = tmp_path / "agents.yaml"
+        key = config.add_agent("old", path=path)
+        before = config.load_agents(path)[0]
+        config.rename_agent("old", "new", path=path)
+        (after,) = config.load_agents(path)
+        assert (after.name, after.id, after.key_hash) == ("new", before.id, config.hash_key(key))
+        assert config.find_agent("new", path).id == before.id
 
     def test_hand_edited_file_without_a_hash_is_rejected(self, tmp_path):
         path = write(tmp_path / "agents.yaml", "agents:\n  - name: a\n    key: plaintext\n")

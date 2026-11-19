@@ -42,10 +42,10 @@ def _today(now: float, tz: ZoneInfo) -> date:
 
 
 def _count_runs(conn: sqlite3.Connection, tz: ZoneInfo, since: float) -> dict:
-    """Return {(day, agent, bucket): count} for runs started at or after `since`."""
+    """Return {(day, agent_id, bucket): count} for runs started at or after `since`."""
     counts: dict = {}
-    for row in conn.execute("SELECT agent, started_at, status FROM runs WHERE started_at >= ?", (since,)):
-        key = (datetime.fromtimestamp(row["started_at"], tz).date().isoformat(), row["agent"], bucket(row["status"]))
+    for row in conn.execute("SELECT agent_id, started_at, status FROM run_view WHERE started_at >= ?", (since,)):
+        key = (datetime.fromtimestamp(row["started_at"], tz).date().isoformat(), row["agent_id"], bucket(row["status"]))
         counts[key] = counts.get(key, 0) + 1
     return counts
 
@@ -61,8 +61,8 @@ def rollup_daily(conn: sqlite3.Connection, tz: ZoneInfo, now: float, runs_days: 
     with db.transaction(conn):
         conn.execute("DELETE FROM daily_runs WHERE day >= ?", (first_live.isoformat(),))
         conn.executemany(
-            "INSERT INTO daily_runs (day, agent, bucket, runs) VALUES (?, ?, ?, ?)",
-            [(day, agent, b, n) for (day, agent, b), n in counts.items()],
+            "INSERT INTO daily_runs (day, agent_id, bucket, runs) VALUES (?, ?, ?, ?)",
+            [(day, agent_id, b, n) for (day, agent_id, b), n in counts.items()],
         )
 
 
@@ -82,7 +82,7 @@ def purge_runs(conn: sqlite3.Connection, tz: ZoneInfo, now: float, runs_days: in
 
 
 def activity(conn: sqlite3.Connection, tz: ZoneInfo, now: float, days: int, runs_days: int,
-             agent: Optional[str] = None) -> dict:
+             agent_id: Optional[str] = None) -> dict:
     """Daily run counts per bucket for the last `days` days, oldest first.
 
     Days inside the raw-retention window are counted live (so running jobs show immediately);
@@ -97,14 +97,14 @@ def activity(conn: sqlite3.Connection, tz: ZoneInfo, now: float, days: int, runs
     if first < first_live:
         query = "SELECT day, bucket, SUM(runs) AS n FROM daily_runs WHERE day >= ? AND day < ?"
         params: list = [first.isoformat(), first_live.isoformat()]
-        if agent:
-            query += " AND agent = ?"
-            params.append(agent)
+        if agent_id:
+            query += " AND agent_id = ?"
+            params.append(agent_id)
         for row in conn.execute(query + " GROUP BY day, bucket", params):
             series[row["bucket"]][row["day"]] += row["n"]
 
     for (day, run_agent, b), n in _count_runs(conn, tz, _day_start(max(first, first_live), tz)).items():
-        if day in series[b] and (agent is None or run_agent == agent):
+        if day in series[b] and (agent_id is None or run_agent == agent_id):
             series[b][day] += n
 
     return {"days": labels, "series": {b: [series[b][label] for label in labels] for b in BUCKETS}}

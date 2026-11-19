@@ -174,39 +174,43 @@ class DatabasePane(Pane):
             await self.admin.show("Delete runs", "There are no stored runs.")
             return
         totals: dict = {}
+        names: dict = {}
         for job in jobs:
-            totals[job["agent"]] = totals.get(job["agent"], 0) + job["runs"]
+            totals[job["agent_id"]] = totals.get(job["agent_id"], 0) + job["runs"]
+            names[job["agent_id"]] = job["agent"]
         options = []
-        for agent, total in totals.items():
-            options.append((f"{agent}: all {total} run(s)", (agent, None, total)))
-            options += [(f"    {agent} / {j['job_name'] or '(unnamed)'}: {j['runs']} run(s)", (agent, j["job_name"], j["runs"]))
-                        for j in jobs if j["agent"] == agent]
+        for agent_id, total in totals.items():
+            name = names[agent_id]
+            options.append((f"{name}: all {total} run(s)", (agent_id, name, None, None, total)))
+            options += [(f"    {name} / {j['job_name'] or '(unnamed)'}: {j['runs']} run(s)",
+                         (agent_id, name, j["job_key"], j["job_name"], j["runs"]))
+                        for j in jobs if j["agent_id"] == agent_id]
         choice = await self.admin.pick("Delete stored runs for...", options)
         if choice is None:
             return
-        agent, job, total = choice
-        if job is not None:
+        agent_id, agent, job_key, job, total = choice
+        if job_key is not None:
             what = await self.admin.choose(
                 f"{agent} / {job or '(unnamed)'}", f"{total} stored run(s). Delete them all, or pick individual runs?",
                 [("Choose individual runs", "pick"), (f"Delete all {total}", "all"), ("Cancel", None)])
             if what is None:
                 return
             if what == "pick":
-                await self._delete_chosen_runs(agent, job)
+                await self._delete_chosen_runs(agent_id, agent, job_key, job)
                 return
-        scope = f"agent '{agent}'" + (f", job '{job}'" if job is not None else " (every job)")
+        scope = f"agent '{agent}'" + (f", job '{job}'" if job_key is not None else " (every job)")
         ok, _ = await self.admin.confirm(
             "Delete runs", f"Delete the stored runs and events for {scope}. Per-day counts already rolled up are kept.",
             confirm="Delete", danger=True)
         if not ok:
             return
-        deleted = await asyncio.to_thread(run_db, maintenance.delete_runs, agent, job)
+        deleted = await asyncio.to_thread(run_db, maintenance.delete_runs, agent_id, job_key)
         audit("runs deleted", agent=agent, job=job, runs=deleted)
         await self.reload()
         await self.admin.show("Delete runs", f"Deleted {deleted} run(s).")
 
-    async def _delete_chosen_runs(self, agent: str, job: str) -> None:
-        runs = await asyncio.to_thread(run_db, maintenance.list_runs, agent, job, RUN_LIST_LIMIT)
+    async def _delete_chosen_runs(self, agent_id: str, agent: str, job_key: str, job: str) -> None:
+        runs = await asyncio.to_thread(run_db, maintenance.list_runs, agent_id, job_key, RUN_LIST_LIMIT)
         try:
             tz = ZoneInfo((await asyncio.to_thread(config.load_config)).timezone)
         except config.ConfigError:
@@ -239,9 +243,13 @@ class DatabasePane(Pane):
         if not series:
             await self.admin.show("Purge storage samples", "There are no stored storage samples.")
             return
+        try:
+            names = {a.id: a.name for a in await asyncio.to_thread(config.load_agents)}
+        except config.ConfigError:
+            names = {}
         options = [(f"All storage samples ({sum(s['samples'] for s in series)})", (None, None))]
-        options += [(f"{s['source']} / {s['name']} ({s['kind']}): {s['samples']} sample(s)", (s["source"], s["name"]))
-                    for s in series]
+        options += [(f"{names.get(s['source'], s['source'])} / {s['name']} ({s['kind']}): {s['samples']} sample(s)",
+                     (s["source"], s["name"])) for s in series]
         choice = await self.admin.pick("Purge storage samples for...", options)
         if choice is None:
             return

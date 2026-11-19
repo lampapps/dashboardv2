@@ -2,7 +2,7 @@
 
 Read-only web dashboard and ingest API for the JABS agents on a home lab LAN. Agents post job events, heartbeats, storage samples; the dashboard shows them, emails a digest, and alerts when an agent goes quiet.
 
-v2 replaces the legacy dashboard (`../dashboard`, "v1"). The v1 agent endpoints behave the same, so existing agents work unchanged.
+v2 replaces the legacy dashboard (`../dashboard`, "v1"). Version 0.5.0 also replaced the agent API: everything is under `/api/v2/` and every agent, job and target is identified by an id that never changes, so renaming one never splits its history.
 
 - The UI has no login and cannot change anything. The only writes are agent posts, authenticated with an API key.
 - All configuration is YAML plus `.env` for secrets. There are no settings pages.
@@ -74,7 +74,7 @@ After updating the code, run `./setup.sh` again (it only fills in what is missin
 | `config/agents.yaml` | The agent registry. Keys are stored only as SHA-256 hashes. Managed with the `agent` commands or the console; edits take effect without a restart |
 | `.env` | Secrets: `JABS_SMTP_USERNAME`, `JABS_SMTP_PASSWORD`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`. `ENV_MODE=development` raises logging to DEBUG and prefixes email subjects with `[DEV]` |
 
-Check the files with `.venv/bin/python -m app config` or the console's Files tab. An agent is identified by its key, so renaming its entry keeps the key working, but its history (stored under the name) would start again under the new name. Rename with `agent rename` (or the console's Agents tab) instead of editing the name by hand: it moves the history too. If `agents.yaml` becomes invalid the dashboard logs why and keeps the last good copy while running; with none it rejects every key.
+Check the files with `.venv/bin/python -m app config` or the console's Files tab. Every agent in `agents.yaml` has an `id` (a UUID that `agent add` writes); the API key, the history and every link use it, so the name is only a label you can change by hand or with `agent rename`. Never edit or copy an `id`. After upgrading from a file without ids, run `agent adopt`. If `agents.yaml` becomes invalid the dashboard logs why and keeps the last good copy while running; with none it rejects every key.
 
 ## Usage
 
@@ -84,8 +84,8 @@ Check the files with `.venv/bin/python -m app config` or the console's Files tab
 | --- | --- |
 | Overview (`/`) | Metrics, Job Activity chart, jobs table (host, job, last, next and previous run; sort or group by host), storage over time (the drives and S3 buckets set in `config.yaml`), status badges |
 | Agents (`/agents`) | One card per agent, grouped by host: up/down history, uptime, read-only configuration |
-| Agent (`/agents/<name>`) | That agent's jobs, activity and history |
-| Job (`/agents/<name>/job?name=<job>`) | Run history with filters and paging, duration and size trend, a run's events |
+| Agent (`/agents/<agent id>`) | That agent's jobs, activity and history |
+| Job (`/agents/<agent id>/jobs/<job id>`) | Run history with filters and paging, duration and size trend, a run's events |
 
 Light and dark themes follow the toggle in the top bar. `/healthz` returns `{"status": "ok", ...}` for monitors.
 
@@ -104,15 +104,17 @@ Run as `.venv/bin/python -m app <command>`. The [admin console](#admin-console) 
 | `agent add NAME [--host HOST] [--grace-minutes N] [--notes TEXT] [--allowed-ip IP]` | Register an agent and print its key once |
 | `agent list`, `agent enable NAME`, `agent disable NAME` | Manage the registry; a disabled agent's key is rejected |
 | `agent set NAME [--host H] [--grace-minutes N] [--notes T] [--allowed-ip IP] [--alerts/--no-alerts]` | Change an agent's settings (an empty `--allowed-ip ''` clears the restriction) |
-| `agent rename NAME NEW_NAME` | Change an agent's name; its key, settings and stored history move with it, and the agent needs no change. Refused when `NEW_NAME` is registered or already has stored history |
-| `agent rekey NAME` | Issue a new API key for an agent (printed once); the old key stops working at once, the name and history stay |
+| `agent rename NAME NEW_NAME` | Change an agent's name; only the label changes, its id, key, settings and history stay and the agent needs no change. Refused when `NEW_NAME` is registered |
+| `agent adopt` | Give an id to every agent in `agents.yaml` that lacks one (needed once after upgrading from 0.4) |
+| `agent rekey NAME` | Issue a new API key for an agent (printed once); the old key stops working at once, the id, name and history stay |
 | `agent remove NAME --yes [--purge-history]` | Delete an agent from the registry; `--purge-history` also deletes its runs, status and storage samples |
+| `orphans` | List stored history that nothing configures any more: agents removed from `agents.yaml`, and jobs an agent no longer reports |
 | `backup [--dest FILE]` | Consistent copy of the database, safe while running |
 | `restore FILE --yes` | Replace the database with a backup; the current one is first saved as `pre-restore-<time>.sqlite` |
 | `vacuum` | Reclaim free space in the database file |
 | `check-db` | Integrity check, size and row counts (exit status 1 when problems are found) |
 | `meta` | Show internal state such as the last tick and digest times |
-| `runs list --agent NAME [--job JOB] [--limit N]` | List an agent's stored runs with their ids, newest first |
+| `runs list --agent NAME [--job JOB] [--limit N]` | List an agent's stored runs with their ids, newest first; `JOB` is a job id or a unique job name |
 | `runs delete --id ID [--id ID ...] --yes` | Delete specific runs (and their events) by id |
 | `runs delete --agent NAME [--job JOB] --yes` | Delete all of an agent's stored runs, or one job's |
 | `storage purge [--source S] [--name N] --yes` | Delete stored storage samples, all or for one source or name |
@@ -135,22 +137,20 @@ Run it as the user that owns the install. It refuses to start as root when the i
 
 ## Agent API
 
-An agent sends its key in the `X-API-Key` header. The v1 endpoints, documented in the [Agent API guide](docs/AGENTS_API_GUIDE.md), behave exactly as in v1:
-
-- `POST /api/monitoring/events` (job events, and heartbeats when `target_id` is omitted; accepts an optional `hostname`)
-- `POST /api/monitoring/target-purged`
-- `GET /api/heartbeat` (health check for monitors such as Uptime Kuma; no key needed)
-
-New endpoints live under `/api/v2/` and are opt-in per agent:
+An agent sends its key in the `X-API-Key` header. The endpoints are documented in the [Agent API guide](docs/AGENTS_API_GUIDE.md):
 
 ```text
+POST /api/v2/heartbeat {"hostname"?, "version"?, "agent_type"?}
+POST /api/v2/events    {"job_id", "target_id", "job_name"?, "target_label"?, "run_id"?, "event_type"?, ...}
+POST /api/v2/purge     {"job_id", "target_id", "external_ids": [...], "message"?}
+POST /api/v2/jobs      {"hostname"?: "...", "jobs": [{"job_id", "job_name"?, "schedules"?: [{"cron", "enabled"}],
+                         "targets"?: [{"target_id", "target_label"?, "source"?, "destination"?}]}]}
 POST /api/v2/storage   {"hostname"?: "...", "samples": [{"name", "kind": "local|cloud|repo",
                          "used_bytes", "total_bytes"?, "series"?, "timestamp"?}]}
-POST /api/v2/jobs      {"hostname"?: "...", "jobs": [{"job_name", "schedules"?: [{"cron", "enabled"}],
-                         "targets"?: [{"name"?, "source"?, "destination"?}]}]}
+GET  /api/heartbeat    health check for monitors such as Uptime Kuma; no key needed
 ```
 
-Stored storage samples count as contact, but the Overview charts only the drives and S3 buckets listed under `storage:` in `config.yaml`. `jobs` replaces what the agent reported before and fills the Jobs list (schedules with their enabled state, source and destination) in the agent's Configuration section on the Agents page. Agent-supplied text is untrusted and always rendered as text, never as HTML.
+**Identity.** The agent's id lives in `agents.yaml`; a job is its `job_id` and a target its `target_id` (a sync pair, or a snapshot job's single target). Names (`job_name`, `target_label`, the agent name) are display text the agent or administrator may change at any time: the stored row is renamed and its history stays. A `jobs` report replaces what the agent reported before; a job or target it no longer lists is kept as inactive with its history (see `orphans`). Stored storage samples count as contact, but the Overview charts only the drives and S3 buckets listed under `storage:` in `config.yaml`. Agent-supplied text is untrusted and always rendered as text, never as HTML.
 
 **Hosts.** A job name alone is not unique when agents run on several machines, so every job is shown with its host. An agent reports its machine name in `hostname` (always used when present); otherwise `host` in `agents.yaml` is used (`agent add NAME --host HOST`), otherwise the agent name. A reported name that is not a plausible host name is ignored, not rejected.
 
@@ -175,7 +175,7 @@ The timer runs `python -m app tick` every 5 minutes: daily rollup, agent status 
 ```
 
 - `tests/unit`: isolated tests, including the console (about a minute).
-- `tests/contract`: a black-box agent-API suite run against throwaway copies of v1 and v2 (`JABS_CONTRACT_BACKENDS=v1,v2`, default both). A test marked `v1_bug` is an expected failure on v1 and must pass on v2.
+- `tests/contract`: a black-box agent-API suite that starts the real app on a throwaway home and talks to it over HTTP like an agent.
 - `tests/js`: `node --test` for the pure helpers in `static/js/ui.js`; pytest runs them when `node` is installed.
 
 See [AGENTS.md](AGENTS.md) for the layout and conventions.

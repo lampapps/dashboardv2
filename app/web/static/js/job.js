@@ -8,10 +8,10 @@ import { agentLabel, bucketOf } from "./shared.js";
 const $ = (id) => document.getElementById(id);
 const POLL_MS = 5000;
 const AGENT = $("job").dataset.agent;
-const NAME = new URLSearchParams(location.search).get("name") ?? "";
-const JOB_LABEL = NAME || "(unnamed)";
-const QUERY = `agent=${encodeURIComponent(AGENT)}&name=${encodeURIComponent(NAME)}`;
+const JOB = $("job").dataset.job;
+const QUERY = `agent=${encodeURIComponent(AGENT)}&job=${encodeURIComponent(JOB)}`;
 const SIZES = [25, 50, 100];
+let jobLabel = "Job";
 
 const state = {
   tz: "UTC",
@@ -35,9 +35,7 @@ let requestSeq = 0;
 const nowEstimate = () => Date.now() / 1000 + state.clockOffset;
 const syncClock = (data) => { state.tz = data.timezone || state.tz; if (data.now) state.clockOffset = data.now - Date.now() / 1000; };
 
-document.title = `${JOB_LABEL} - ${AGENT} - JABS`;
-setText($("j-name"), JOB_LABEL);
-setText($("crumb-job"), JOB_LABEL);
+document.title = "Job - JABS";
 
 function showError(message) {
   const box = $("banners");
@@ -138,11 +136,15 @@ function renderSummary(data) {
   setText($("j-pill"), rollup.last_status);
   setClass($("j-pill"), "pill pill-" + bucketOf(rollup.last_status));
   const where = [`host ${data.host}`];
-  if (data.host !== AGENT) where.push(`agent ${AGENT}`);
-  where.push(data.schedule ? `schedule ${data.schedule}` : "no schedule reported");
+  if (data.host !== data.agent) where.push(`agent ${data.agent}`);
+  const crons = (data.schedules || []).filter((s) => s.enabled).map((s) => s.cron);
+  where.push(crons.length ? `schedule ${crons.join(", ")}` : "no schedule reported");
   setText($("j-meta"), where.join(" · "));
-  setText($("crumb-agent"), agentLabel(data.host, AGENT));
-  document.title = `${JOB_LABEL} - ${agentLabel(data.host, AGENT)} - JABS`;
+  jobLabel = data.job_name || "(unnamed)";
+  setText($("j-name"), jobLabel);
+  setText($("crumb-job"), jobLabel);
+  setText($("crumb-agent"), agentLabel(data.host, data.agent));
+  document.title = `${jobLabel} - ${agentLabel(data.host, data.agent)} - JABS`;
 
   setCard("runs", String(total), `${counts.failed} failed`);
   setCard("rate", judged ? fmtPercent(succeeded / judged) : "–", null);
@@ -194,7 +196,7 @@ async function refreshSummary(force) {
     setText($("updated"), "Updated " + fmtClock(nowEstimate(), state.tz));
   } catch (e) {
     if (mine !== requestSeq) return;
-    showError(e.message === "HTTP 404" ? `No runs have been reported for '${JOB_LABEL}' on ${AGENT}.` : "Cannot load data from the dashboard service.");
+    showError(e.message === "HTTP 404" ? "This job is not known to the dashboard." : "Cannot load data from the dashboard service.");
   }
 }
 
@@ -264,7 +266,7 @@ function renderPager() {
 async function refreshRuns(force) {
   const r = state.runs;
   if (r.offset > 0 && !force) return; // keep an older page from shifting under the reader
-  const params = new URLSearchParams({ agent: AGENT, name: NAME, limit: String(r.limit), offset: String(r.offset) });
+  const params = new URLSearchParams({ agent: AGENT, job: JOB, limit: String(r.limit), offset: String(r.offset) });
   ["status", "target", "since"].forEach((key) => { if (r[key]) params.set(key, r[key]); });
   try {
     const result = await getJson(`/api/ui/job/runs?${params}`, force ? null : r.etag);

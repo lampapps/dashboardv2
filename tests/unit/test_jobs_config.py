@@ -1,10 +1,10 @@
-import json
-
 import pytest
 
 from app import agents_report, config, db, ingest
 from app.config import AgentConfig, Config
 from app.web import create_app
+
+from ..seed import aid
 
 NOW = 1_800_000_000.0
 
@@ -24,71 +24,106 @@ def post(client, key, body, **kw):
     return client.post("/api/v2/jobs", json=body, headers={"X-API-Key": key}, **kw)
 
 
-def stored():
+def stored(active_only=True):
+    """(agent name, job key, job name, target key, label, source, destination) of the stored targets."""
     conn = db.connect()
     try:
+        where = " WHERE j.active = 1 AND t.active = 1" if active_only else ""
         return [tuple(r) for r in conn.execute(
-            "SELECT agent, job_name, target, source, destination FROM job_targets ORDER BY job_name, target")]
+            "SELECT a.name, j.job_key, j.name, t.target_key, t.label, t.source, t.destination FROM targets t "
+            "JOIN jobs j ON j.id = t.job_id JOIN agents a ON a.id = j.agent_id" + where +
+            " ORDER BY a.name, j.job_key, t.target_key")]
     finally:
         conn.close()
 
 
-def one_job(name="jim-home", source="/home/jim", destination="s3:bucket/jim"):
-    return {"job_name": name, "targets": [{"name": name, "source": source, "destination": destination}]}
+def one_job(job_id="id-a", name="jim-home", source="/home/jim", destination="s3:bucket/jim", **extra):
+    return {"job_id": job_id, "job_name": name,
+            "targets": [{"target_id": job_id, "target_label": name, "source": source, "destination": destination}],
+            **extra}
 
 
 class TestSubmit:
     def test_an_agent_can_report_its_jobs(self, client, key):
-        resp = post(client, key, {"hostname": "P3Tiny", "jobs": [one_job("a"), one_job("b", "/b", "s3:b")]})
+        resp = post(client, key, {"hostname": "P3Tiny", "jobs": [one_job("id-a", "a"), one_job("id-b", "b", "/b", "s3:b")]})
         assert (resp.status_code, resp.get_json()) == (201, {"success": True, "stored": 2})
-        assert stored() == [("snap", "a", "a", "/home/jim", "s3:bucket/jim"), ("snap", "b", "b", "/b", "s3:b")]
+        assert stored() == [("snap", "id-a", "a", "id-a", "a", "/home/jim", "s3:bucket/jim"),
+                            ("snap", "id-b", "b", "id-b", "b", "/b", "s3:b")]
 
-    def test_each_report_replaces_the_last_so_removed_jobs_disappear(self, client, key):
-        post(client, key, {"jobs": [one_job("a"), one_job("b")]})
-        post(client, key, {"jobs": [one_job("b", "/new", "s3:new")]})
-        assert stored() == [("snap", "b", "b", "/new", "s3:new")]
+    def test_each_report_replaces_the_last_and_dropped_jobs_go_inactive(self, client, key):
+        post(client, key, {"jobs": [one_job("id-a", "a"), one_job("id-b", "b")]})
+        post(client, key, {"jobs": [one_job("id-b", "b", "/new", "s3:new")]})
+        assert stored() == [("snap", "id-b", "b", "id-b", "b", "/new", "s3:new")]
         post(client, key, {"jobs": []})
         assert stored() == []
+        assert len(stored(active_only=False)) == 2   # the rows (and so their history) are kept
+
+    def test_a_job_that_comes_back_is_active_again(self, client, key):
+        post(client, key, {"jobs": [one_job()]})
+        post(client, key, {"jobs": []})
+        post(client, key, {"jobs": [one_job()]})
+        assert len(stored()) == 1
+
+    def test_renaming_a_job_keeps_its_row_and_history(self, client, key):
+        post(client, key, {"jobs": [one_job("id-a", "old name")]})
+        conn = db.connect()
+        before = conn.execute("SELECT id FROM jobs").fetchone()[0]
+        conn.close()
+        post(client, key, {"jobs": [one_job("id-a", "new name")]})
+        conn = db.connect()
+        rows = [tuple(r) for r in conn.execute("SELECT id, job_key, name FROM jobs")]
+        conn.close()
+        assert rows == [(before, "id-a", "new name")]
 
     def test_other_agents_keep_their_rows(self, client, key):
         other = config.add_agent("other")
-        post(client, key, {"jobs": [one_job("a")]})
-        post(client, other, {"jobs": [one_job("z")]})
+        post(client, key, {"jobs": [one_job("id-a", "a")]})
+        post(client, other, {"jobs": [one_job("id-z", "z")]})
         post(client, key, {"jobs": []})
-        assert stored() == [("other", "z", "z", "/home/jim", "s3:bucket/jim")]
+        assert stored() == [("other", "id-z", "z", "id-z", "z", "/home/jim", "s3:bucket/jim")]
 
-    def test_a_sync_job_has_one_target_per_pair(self, client, key):
-        post(client, key, {"jobs": [{"job_name": "UNAS", "targets": [
-            {"name": "backups", "source": "/mnt/backups", "destination": "nas2:jof"},
-            {"name": "kpf", "source": "nas2:kpf", "destination": "/mnt/kpf"}]}]})
-        assert [(r[1], r[2]) for r in stored()] == [("UNAS", "backups"), ("UNAS", "kpf")]
+    def test_two_agents_may_use_the_same_job_id(self, client, key):
+        other = config.add_agent("other")
+        post(client, key, {"jobs": [one_job("same", "a")]})
+        post(client, other, {"jobs": [one_job("same", "b")]})
+        assert [(r[0], r[2]) for r in stored()] == [("other", "b"), ("snap", "a")]
 
-    def test_a_target_without_a_name_takes_the_job_name(self, client, key):
-        post(client, key, {"jobs": [{"job_name": "j", "targets": [{"source": "/s", "destination": "/d"}]}]})
-        assert stored() == [("snap", "j", "j", "/s", "/d")]
+    def test_a_sync_job_has_one_target_per_pair_keyed_by_pair_name(self, client, key):
+        post(client, key, {"jobs": [{"job_id": "id-u", "job_name": "UNAS", "targets": [
+            {"target_id": "backups", "source": "/mnt/backups", "destination": "nas2:jof"},
+            {"target_id": "kpf", "source": "nas2:kpf", "destination": "/mnt/kpf"}]}]})
+        assert [(r[2], r[3], r[4]) for r in stored()] == [("UNAS", "backups", "backups"), ("UNAS", "kpf", "kpf")]
+
+    def test_a_dropped_pair_goes_inactive_but_its_runs_stay(self, client, key):
+        post(client, key, {"jobs": [{"job_id": "j", "job_name": "J", "targets": [
+            {"target_id": "p1"}, {"target_id": "p2"}]}]})
+        post(client, key, {"jobs": [{"job_id": "j", "job_name": "J", "targets": [{"target_id": "p1"}]}]})
+        assert [r[3] for r in stored()] == ["p1"]
+        assert [r[3] for r in stored(active_only=False)] == ["p1", "p2"]
 
     def test_reporting_counts_as_hearing_from_the_agent_and_records_the_host(self, client, key):
         post(client, key, {"hostname": "P3Tiny", "jobs": []})
         conn = db.connect()
-        row = conn.execute("SELECT hostname, last_heartbeat FROM agent_state WHERE name = 'snap'").fetchone()
+        row = conn.execute("SELECT hostname, last_heartbeat FROM agents WHERE name = 'snap'").fetchone()
         conn.close()
         assert row["hostname"] == "P3Tiny" and row["last_heartbeat"] > 0
 
     def test_agent_text_is_trimmed_and_capped(self, client, key):
-        post(client, key, {"jobs": [{"job_name": "  j  ", "targets": [
-            {"name": "n" * 500, "source": "s" * 5000, "destination": 7}]}]})
-        ((_, job, target, source, destination),) = stored()
-        assert (job, len(target), len(source), destination) == ("j", 200, 1000, "")
+        post(client, key, {"jobs": [{"job_id": " j ", "job_name": "  j  ", "targets": [
+            {"target_id": "t" * 500, "source": "s" * 5000, "destination": None}]}]})
+        ((_, job_key, job, target, _label, source, destination),) = stored()
+        assert (job_key, job, len(target), len(source), destination) == ("j", "j", 200, 1000, "")
 
     @pytest.mark.parametrize("body", [
-        {}, {"jobs": "x"}, {"jobs": [{"targets": []}]}, {"jobs": [{"job_name": "   "}]},
+        {}, {"jobs": "x"}, {"jobs": [{"job_name": "no id", "targets": []}]}, {"jobs": [{"job_id": "   "}]},
+        {"jobs": [{"job_id": "j", "targets": [{"source": "/s"}]}]},
         {"jobs": [one_job()] * (ingest.MAX_JOBS + 1)},
-        {"jobs": [{"job_name": "j", "targets": [{}] * (ingest.MAX_TARGETS_PER_JOB + 1)}]},
+        {"jobs": [{"job_id": "j", "targets": [{"target_id": "t"}] * (ingest.MAX_TARGETS_PER_JOB + 1)}]},
     ])
     def test_invalid_reports_are_rejected_and_change_nothing(self, client, key, body):
-        post(client, key, {"jobs": [one_job("keep")]})
+        post(client, key, {"jobs": [one_job("id-keep", "keep")]})
         assert post(client, key, body).status_code == 400
-        assert [r[1] for r in stored()] == ["keep"]
+        assert [r[2] for r in stored()] == ["keep"]
 
     def test_requires_a_valid_key(self, client, key):
         assert client.post("/api/v2/jobs", json={"jobs": []}).status_code == 401
@@ -99,72 +134,45 @@ class TestSubmit:
         assert post(client, key, {"jobs": [one_job()]}).status_code == 403
         assert stored() == []
 
+    def test_the_old_agent_endpoints_are_gone(self, client, key):
+        for path in ("/api/monitoring/events", "/api/monitoring/target-purged"):
+            assert client.post(path, json={}, headers={"X-API-Key": key}).status_code == 404
+
 
 class TestSchedules:
-    def heartbeat_schedules(self):
+    def schedules(self):
         conn = db.connect()
         try:
-            return sorted(r[0] for r in conn.execute("SELECT job_name FROM job_schedules"))
-        finally:
-            conn.close()
-
-    def seed(self):
-        conn = db.connect()
-        for job in ("kept", "deleted", "disabled", "unsaid"):
-            conn.execute("INSERT INTO job_schedules VALUES ('snap', ?, '0 3 * * *', 1)", (job,))
-        conn.execute("INSERT INTO job_schedules VALUES ('other', 'deleted', '0 3 * * *', 1)")
-        conn.close()
-
-    def test_a_deleted_job_loses_its_stale_heartbeat_schedule(self, client, key):
-        self.seed()
-        post(client, key, {"jobs": [
-            {"job_name": "kept", "schedules": [{"cron": "0 3 * * *", "enabled": True}]},
-            {"job_name": "disabled", "schedules": [{"cron": "0 3 * * *", "enabled": False}]},
-            {"job_name": "unsaid"}]})
-        # "deleted" is gone and "disabled" has none enabled; a job whose agent does not say keeps its row
-        conn = db.connect()
-        rows = sorted(tuple(r) for r in conn.execute("SELECT agent, job_name FROM job_schedules"))
-        conn.close()
-        assert rows == [("other", "deleted"), ("snap", "kept"), ("snap", "unsaid")]
-
-    def test_an_empty_report_clears_the_agents_schedules_only(self, client, key):
-        self.seed()
-        post(client, key, {"jobs": []})
-        assert self.heartbeat_schedules() == ["deleted"]   # only the other agent's row is left
-
-
-class TestStoredSchedules:
-    def reported(self):
-        conn = db.connect()
-        try:
-            return {r[0]: json.loads(r[1]) for r in conn.execute("SELECT job_name, schedules FROM job_config")}
+            return [tuple(r) for r in conn.execute(
+                "SELECT j.job_key, s.cron, s.enabled FROM job_schedules s JOIN jobs j ON j.id = s.job_id "
+                "ORDER BY j.job_key, s.cron")]
         finally:
             conn.close()
 
     def test_schedules_are_stored_with_their_enabled_state(self, client, key):
         post(client, key, {"jobs": [
-            {"job_name": "a", "schedules": [{"cron": "0 2 * * *", "enabled": True}, {"cron": " 0 9 * * 1 "}]},
-            {"job_name": "b", "schedules": []}, {"job_name": "c"}]})
-        assert self.reported() == {"a": [{"cron": "0 2 * * *", "enabled": True}, {"cron": "0 9 * * 1", "enabled": False}],
-                                   "b": []}   # "c" did not say, so nothing is claimed about it
+            {"job_id": "a", "schedules": [{"cron": "0 2 * * *", "enabled": True}, {"cron": " 0 9 * * 1 "}]},
+            {"job_id": "b", "schedules": []}, {"job_id": "c"}]})
+        assert self.schedules() == [("a", "0 2 * * *", 1), ("a", "0 9 * * 1", 0)]
 
     def test_each_report_replaces_the_last(self, client, key):
-        post(client, key, {"jobs": [{"job_name": "a", "schedules": [{"cron": "* * * * *", "enabled": True}]}]})
-        post(client, key, {"jobs": [{"job_name": "b", "schedules": []}]})
-        assert self.reported() == {"b": []}
+        post(client, key, {"jobs": [{"job_id": "a", "schedules": [{"cron": "* * * * *", "enabled": True}]}]})
+        post(client, key, {"jobs": [{"job_id": "a", "schedules": [{"cron": "0 1 * * *", "enabled": False}]}]})
+        assert self.schedules() == [("a", "0 1 * * *", 0)]
 
     @pytest.mark.parametrize("schedules", [
         "daily", [{}], [{"cron": ""}], [{"cron": "* * * * *", "enabled": "maybe"}],
         [{"cron": "* * * * *"}] * (ingest.MAX_SCHEDULES_PER_JOB + 1),
     ])
     def test_invalid_schedules_are_rejected(self, client, key, schedules):
-        assert post(client, key, {"jobs": [{"job_name": "a", "schedules": schedules}]}).status_code == 400
+        assert post(client, key, {"jobs": [{"job_id": "a", "schedules": schedules}]}).status_code == 400
 
 
 class TestAgentCard:
+    AGENT = AgentConfig(id=aid("snap"), name="snap", key_hash="0" * 64)
+
     def card(self, conn):
-        agent = AgentConfig(name="snap", key_hash="0" * 64)
-        return agents_report.build(conn, Config(), [agent], NOW, "7d")["agents"][0]
+        return agents_report.build(conn, Config(), [self.AGENT], NOW, "7d")["agents"][0]
 
     @pytest.fixture
     def conn(self, home):
@@ -173,43 +181,33 @@ class TestAgentCard:
         yield connection
         connection.close()
 
-    def schedule(self, conn, job, cron):
-        conn.execute("INSERT INTO job_schedules VALUES ('snap', ?, ?, 1)", (job, cron))
-
-    def target(self, conn, job, name, source, destination):
-        conn.execute("INSERT INTO job_targets VALUES ('snap', ?, ?, ?, ?, 1)", (job, name, source, destination))
+    def report(self, conn, jobs):
+        agent = self.AGENT
+        ingest.record_jobs(conn, agent, ingest.JobsPayload.model_validate({"jobs": jobs}), NOW)
 
     def test_jobs_merge_the_schedule_with_what_they_copy(self, conn):
-        self.schedule(conn, "jim-home", "0 0 * * *")
-        self.target(conn, "jim-home", "jim-home", "/home/jim", "s3:bucket/jim")
+        self.report(conn, [one_job("id-a", "jim-home", schedules=[{"cron": "0 0 * * *", "enabled": True}])])
         assert self.card(conn)["jobs_config"] == [{
-            "job_name": "jim-home", "cron_schedule": "0 0 * * *", "schedules": None,
-            "targets": [{"name": "jim-home", "source": "/home/jim", "destination": "s3:bucket/jim"}]}]
+            "job_key": "id-a", "job_name": "jim-home", "schedules": [{"cron": "0 0 * * *", "enabled": True}],
+            "targets": [{"target_id": "id-a", "label": "jim-home", "source": "/home/jim", "destination": "s3:bucket/jim"}]}]
 
-    def test_a_job_known_by_only_one_source_still_appears(self, conn):
-        self.schedule(conn, "old-agent-job", "0 3 * * *")
-        self.target(conn, "no-schedule", "p", "/s", "/d")
-        jobs = {j["job_name"]: j for j in self.card(conn)["jobs_config"]}
-        assert jobs["old-agent-job"]["targets"] == [] and jobs["old-agent-job"]["cron_schedule"] == "0 3 * * *"
-        assert jobs["no-schedule"]["cron_schedule"] is None and len(jobs["no-schedule"]["targets"]) == 1
-
-    def test_jobs_sort_by_name_ignoring_case_and_targets_by_name(self, conn):
-        for job in ("b-job", "A-job"):
-            self.schedule(conn, job, "* * * * *")
-        self.target(conn, "A-job", "z", "/z", "/zz")
-        self.target(conn, "A-job", "a", "/a", "/aa")
+    def test_jobs_sort_by_name_ignoring_case_and_targets_by_label(self, conn):
+        self.report(conn, [
+            {"job_id": "1", "job_name": "b-job"},
+            {"job_id": "2", "job_name": "A-job", "targets": [
+                {"target_id": "z", "target_label": "z"}, {"target_id": "a", "target_label": "a"}]}])
         jobs = self.card(conn)["jobs_config"]
         assert [j["job_name"] for j in jobs] == ["A-job", "b-job"]
-        assert [t["name"] for t in jobs[0]["targets"]] == ["a", "z"]
+        assert [t["label"] for t in jobs[0]["targets"]] == ["a", "z"]
 
-    def test_reported_schedules_carry_their_enabled_state(self, conn):
-        self.schedule(conn, "stale", "0 1 * * *")
-        conn.execute("INSERT INTO job_config VALUES ('snap', 'stale', '[]', 1)")
-        conn.execute("INSERT INTO job_config VALUES ('snap', 'off', '[{\"cron\": \"0 2 * * *\", \"enabled\": false}]', 1)")
-        jobs = {j["job_name"]: j for j in self.card(conn)["jobs_config"]}
-        assert jobs["off"]["schedules"] == [{"cron": "0 2 * * *", "enabled": False}]
-        assert jobs["stale"]["schedules"] == [] and jobs["stale"]["cron_schedule"] == "0 1 * * *"
+    def test_disabled_schedules_are_shown_as_disabled(self, conn):
+        self.report(conn, [{"job_id": "1", "job_name": "off", "schedules": [{"cron": "0 2 * * *", "enabled": False}]}])
+        assert self.card(conn)["jobs_config"][0]["schedules"] == [{"cron": "0 2 * * *", "enabled": False}]
+
+    def test_jobs_dropped_from_the_report_leave_the_card(self, conn):
+        self.report(conn, [one_job("1", "gone")])
+        self.report(conn, [])
+        assert self.card(conn)["jobs_config"] == []
 
     def test_an_agent_with_nothing_reported_has_no_jobs(self, conn):
-        card = self.card(conn)
-        assert card["jobs_config"] == [] and card["schedules"] == []
+        assert self.card(conn)["jobs_config"] == []

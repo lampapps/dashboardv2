@@ -31,14 +31,14 @@ def _finished_counts(conn: sqlite3.Connection, since: float) -> dict:
 
 
 def _agents(conn: sqlite3.Connection, configured: list, now: float, hosts: dict) -> list:
-    states = {row["name"]: row for row in conn.execute(
-        "SELECT name, status, last_heartbeat FROM agent_state")}
+    states = {row["id"]: row for row in conn.execute(
+        "SELECT id, status, last_heartbeat FROM agents")}
     gap = gap_end(conn)
     rows = []
     for a in sorted(configured, key=lambda a: a.name):
-        state = states.get(a.name)
+        state = states.get(a.id)
         heartbeat = state["last_heartbeat"] if state else None
-        rows.append({"name": a.name, "host": hosts[a.name], "last_heartbeat": heartbeat,
+        rows.append({"id": a.id, "name": a.name, "host": hosts[a.id], "last_heartbeat": heartbeat,
                      "status": effective_status(a, state["status"] if state else None, heartbeat, now, gap)})
     return rows
 

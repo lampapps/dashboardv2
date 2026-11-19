@@ -6,7 +6,9 @@ from app import activity, agents_report, config, db, runs
 from app.config import AgentConfig, Config
 from app.web import api_ui, create_app
 
-NOW = 1_800_000_000.0
+from ..seed import NOW, add_run, add_schedule
+
+AID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"   # an agent id that passes the registry's format check
 HOUR = 3600
 
 
@@ -17,21 +19,6 @@ def conn(tmp_path):
     connection = db.connect(path)
     yield connection
     connection.close()
-
-
-def add_run(conn, agent="a", job="J", status="success", started=NOW - HOUR, runtime=10.0, target="T",
-            label="T label", bytes_=1000, files=5, error=None, percent=None, events=()):
-    cursor = conn.execute(
-        "INSERT INTO runs (agent, job_name, target_id, target_label, status, started_at, completed_at, "
-        "runtime_seconds, files_count, bytes_processed, error_message, percent_complete, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (agent, job, target, label, status, started, None if status == "running" else started + (runtime or 0),
-         None if status == "running" else runtime, files, bytes_, error, percent, started))
-    run_pk = cursor.lastrowid
-    for i, (event_type, message) in enumerate(events):
-        conn.execute("INSERT INTO events (run_pk, event_type, message, timestamp, created_at) VALUES (?, ?, ?, ?, ?)",
-                     (run_pk, event_type, message, started + i, started + i))
-    return run_pk
 
 
 class TestListRuns:
@@ -80,9 +67,11 @@ class TestListRuns:
         messages = {r["status"]: r["message"] for r in runs.list_runs(conn, "a", "J")["runs"]}
         assert messages == {"success": "All done", "running": "Halfway"}
 
-    def test_an_empty_job_name_is_a_valid_job(self, conn):
-        add_run(conn, job="")
-        assert runs.list_runs(conn, "a", "")["total"] == 1
+    def test_runs_are_found_by_job_key_whatever_the_job_is_called(self, conn):
+        add_run(conn, job="id-1", job_name="old name")
+        conn.execute("UPDATE jobs SET name = 'new name'")
+        assert runs.list_runs(conn, "a", "id-1")["total"] == 1
+        assert runs.list_runs(conn, "a", "new name")["total"] == 0
 
 
 class TestTrendAndSummary:
@@ -95,19 +84,22 @@ class TestTrendAndSummary:
         assert len(runs.trend(conn, "a", "J", limit=1)) == 1
 
     def test_summary_has_targets_schedule_and_success_only_average(self, conn):
-        add_run(conn, runtime=10, target="X", label="Ex")
-        add_run(conn, runtime=30, target="X", label="Ex", status="purged")
-        add_run(conn, status="failed", runtime=1000, target="Y")
-        conn.execute("INSERT INTO job_schedules VALUES ('a', 'J', '30 2 * * *', ?)", (NOW,))
-        summary = runs.job_summary(conn, Config(), NOW, "a", "J")
+        add_run(conn, agent=AID, runtime=10, target="X", label="Ex")
+        add_run(conn, agent=AID, runtime=30, target="X", label="Ex", status="purged")
+        add_run(conn, agent=AID, status="failed", runtime=1000, target="Y")
+        add_schedule(conn, AID, "J", "30 2 * * *")
+        add_schedule(conn, AID, "J", "0 9 * * 1", enabled=False)
+        summary = runs.job_summary(conn, Config(), NOW, AgentConfig(id=AID, name="nas", key_hash=config.hash_key("k")), "J")
         assert summary["avg_runtime_seconds"] == 20
         assert summary["bytes_processed"] == 3000
-        assert summary["schedule"] == "30 2 * * *"
+        assert summary["agent"] == "nas" and summary["job_name"] == "J"
+        assert summary["schedules"] == [{"cron": "0 9 * * 1", "enabled": False}, {"cron": "30 2 * * *", "enabled": True}]
         assert [(t["target_id"], t["runs"]) for t in summary["targets"]] == [("X", 2), ("Y", 1)]
         assert summary["rollup"]["status_counts"] == {"success": 1, "purged": 1, "failed": 1}
 
     def test_unknown_job_has_no_summary(self, conn):
-        assert runs.job_summary(conn, Config(), NOW, "a", "missing") is None
+        agent = AgentConfig(id=AID, name="nas", key_hash=config.hash_key("k"))
+        assert runs.job_summary(conn, Config(), NOW, agent, "missing") is None
 
 
 class TestRunDetail:
@@ -115,7 +107,7 @@ class TestRunDetail:
         pk = add_run(conn, events=[("heartbeat", "one"), ("heartbeat", "two"), ("backup_complete", "three")])
         detail = runs.run_detail(conn, pk)
         assert [e["message"] for e in detail["events"]] == ["one", "two", "three"]
-        assert detail["run"]["agent"] == "a" and detail["events_truncated"] is False
+        assert detail["run"]["agent_id"] == "a" and detail["events_truncated"] is False
 
     def test_long_event_lists_are_truncated(self, conn, monkeypatch):
         monkeypatch.setattr(runs, "MAX_EVENTS", 2)
@@ -128,13 +120,13 @@ class TestRunDetail:
 
 
 class TestAgentDetail:
-    def agent(self, name="a"):
-        return AgentConfig(name=name, key_hash=config.hash_key(name))
+    def agent(self):
+        return AgentConfig(id=AID, name="a", key_hash=config.hash_key("a"))
 
     def test_counts_totals_and_job_rows_are_for_this_agent_only(self, conn):
-        add_run(conn, bytes_=500, runtime=10)
-        add_run(conn, status="failed", bytes_=100)
-        add_run(conn, status="running", started=NOW - 5)
+        add_run(conn, agent=AID, bytes_=500, runtime=10)
+        add_run(conn, agent=AID, status="failed", bytes_=100)
+        add_run(conn, agent=AID, status="running", started=NOW - 5)
         add_run(conn, agent="other", job="J2")
         detail = agents_report.detail(conn, Config(), self.agent(), NOW, "30d")
 
@@ -150,9 +142,9 @@ class TestAgentDetail:
         assert detail["totals"]["days"] == Config().retention.runs_days
 
     def test_average_duration_counts_successful_runs_only(self, conn):
-        add_run(conn, runtime=10)
-        add_run(conn, runtime=30)
-        add_run(conn, status="failed", runtime=900)
+        add_run(conn, agent=AID, runtime=10)
+        add_run(conn, agent=AID, runtime=30)
+        add_run(conn, agent=AID, status="failed", runtime=900)
         detail = agents_report.detail(conn, Config(), self.agent(), NOW, "7d")
         assert detail["totals"]["avg_runtime_seconds"] == 20
 
@@ -163,64 +155,69 @@ class TestHttp:
         db.init_db()
         monkeypatch.setattr(api_ui, "time", types.SimpleNamespace(time=lambda: NOW))
         config.add_agent("nas1")
+        self.aid = config.find_agent("nas1").id
         connection = db.connect()
-        self.run_pk = add_run(connection, agent="nas1", events=[("backup_complete", "done")])
-        add_run(connection, agent="nas1", status="failed", target="U", started=NOW - 5 * HOUR, error="disk full")
-        add_run(connection, agent="nas1", job="", started=NOW - 2 * HOUR)
+        self.run_pk = add_run(connection, agent=self.aid, agent_name="nas1", job="job-1", job_name="Nightly",
+                              events=[("backup_complete", "done")])
+        add_run(connection, agent=self.aid, job="job-1", status="failed", target="U", started=NOW - 5 * HOUR,
+                error="disk full")
         db.bump_rev(connection)
         connection.close()
         return create_app(config.load_config()).test_client()
 
+    def q(self, **extra):
+        params = {"agent": self.aid, "job": "job-1", **extra}
+        return "&".join(f"{k}={v}" for k, v in params.items())
+
     def test_agent_detail(self, client):
-        body = client.get("/api/ui/agents/nas1?range=30d").get_json()
-        assert body["name"] == "nas1" and body["status"] == "new"
+        body = client.get(f"/api/ui/agents/{self.aid}?range=30d").get_json()
+        assert body["name"] == "nas1" and body["id"] == self.aid and body["status"] == "new"
         assert {"activity", "counts", "totals", "job_rows", "spans", "config"} <= set(body)
         assert "key_hash" not in str(body)
 
-    def test_unknown_agent_is_404(self, client):
+    def test_agents_are_addressed_by_id_not_name(self, client):
+        assert client.get("/api/ui/agents/nas1").status_code == 404
         assert client.get("/api/ui/agents/ghost").status_code == 404
 
-    def test_job_requires_agent_and_name(self, client):
-        assert client.get("/api/ui/job?agent=nas1").status_code == 400
-        assert client.get("/api/ui/job?name=J").status_code == 400
-        assert client.get("/api/ui/job?agent=nas1&name=" + "x" * 300).status_code == 400
+    def test_job_requires_a_known_agent_and_a_job(self, client):
+        assert client.get(f"/api/ui/job?agent={self.aid}").status_code == 400
+        assert client.get("/api/ui/job?job=job-1").status_code == 400
+        assert client.get("/api/ui/job?agent=nas1&job=job-1").status_code == 400
+        assert client.get(f"/api/ui/job?agent={self.aid}&job=" + "x" * 300).status_code == 400
 
     def test_job_summary_and_unknown_job(self, client):
-        body = client.get("/api/ui/job?agent=nas1&name=J").get_json()
-        assert body["rollup"]["job_name"] == "J" and len(body["targets"]) == 2
-        assert client.get("/api/ui/job?agent=nas1&name=nope").status_code == 404
-
-    def test_unnamed_job_is_reachable(self, client):
-        assert client.get("/api/ui/job?agent=nas1&name=").status_code == 200
-        assert client.get("/api/ui/job/runs?agent=nas1&name=").get_json()["total"] == 1
+        body = client.get("/api/ui/job?" + self.q()).get_json()
+        assert body["job_name"] == "Nightly" and body["agent"] == "nas1" and len(body["targets"]) == 2
+        assert client.get("/api/ui/job?" + self.q(job="nope")).status_code == 404
 
     def test_runs_paging_and_filters(self, client):
-        body = client.get("/api/ui/job/runs?agent=nas1&name=J&limit=1").get_json()
+        body = client.get("/api/ui/job/runs?" + self.q(limit=1)).get_json()
         assert (body["total"], len(body["runs"])) == (2, 1)
-        failed = client.get("/api/ui/job/runs?agent=nas1&name=J&status=failed").get_json()
+        failed = client.get("/api/ui/job/runs?" + self.q(status="failed")).get_json()
         assert [r["error_message"] for r in failed["runs"]] == ["disk full"]
-        by_target = client.get("/api/ui/job/runs?agent=nas1&name=J&target=U").get_json()
-        assert by_target["total"] == 1
-        recent = client.get("/api/ui/job/runs?agent=nas1&name=J&since=24h").get_json()
-        assert recent["total"] == 2
-        assert client.get("/api/ui/job/runs?agent=nas1&name=J&limit=abc").get_json()["limit"] == runs.DEFAULT_PAGE_SIZE
+        assert client.get("/api/ui/job/runs?" + self.q(target="U")).get_json()["total"] == 1
+        assert client.get("/api/ui/job/runs?" + self.q(since="24h")).get_json()["total"] == 2
+        assert client.get("/api/ui/job/runs?" + self.q(limit="abc")).get_json()["limit"] == runs.DEFAULT_PAGE_SIZE
 
     def test_runs_use_etags_that_depend_on_the_query(self, client):
-        first = client.get("/api/ui/job/runs?agent=nas1&name=J")
-        assert client.get("/api/ui/job/runs?agent=nas1&name=J", headers={"If-None-Match": first.headers["ETag"]}).status_code == 304
-        other = client.get("/api/ui/job/runs?agent=nas1&name=J&offset=1")
+        first = client.get("/api/ui/job/runs?" + self.q())
+        assert client.get("/api/ui/job/runs?" + self.q(), headers={"If-None-Match": first.headers["ETag"]}).status_code == 304
+        other = client.get("/api/ui/job/runs?" + self.q(offset=1))
         assert other.headers["ETag"] != first.headers["ETag"]
 
-    def test_run_detail(self, client):
+    def test_run_detail_names_the_agent_and_job(self, client):
         body = client.get(f"/api/ui/runs/{self.run_pk}").get_json()
-        assert body["run"]["job_name"] == "J" and body["events"][0]["message"] == "done"
+        assert body["run"]["job_name"] == "Nightly" and body["run"]["agent"] == "nas1"
+        assert body["events"][0]["message"] == "done"
         assert client.get("/api/ui/runs/99999").status_code == 404
 
-    def test_pages(self, client):
-        assert 'data-agent="nas1"' in client.get("/agents/nas1").get_data(as_text=True)
-        job = client.get("/agents/nas1/job?name=J").get_data(as_text=True)
-        assert 'id="run-dialog"' in job and "js/job.js" in job
-        assert client.get("/agents/bad name/job").status_code == 404
+    def test_pages_use_ids_and_job_keys(self, client):
+        page = client.get(f"/agents/{self.aid}").get_data(as_text=True)
+        assert f'data-agent="{self.aid}"' in page and "nas1" in page
+        job = client.get(f"/agents/{self.aid}/jobs/job-1").get_data(as_text=True)
+        assert 'id="run-dialog"' in job and "js/job.js" in job and 'data-job="job-1"' in job
+        assert client.get("/agents/nas1").status_code == 404
+        assert client.get(f"/agents/{'0' * 8}-0000-0000-0000-{'0' * 12}").status_code == 404
         assert client.get("/agents/-bad").status_code == 404
 
 

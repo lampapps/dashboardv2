@@ -1,6 +1,3 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-markers = [
-    "v1_bug: behavior the v1 dashboard gets wrong; expected to fail against v1 and pass against v2",
-]

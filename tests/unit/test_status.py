@@ -7,13 +7,15 @@ from app import config, db, status
 from app.config import AgentConfig
 from app.web import api_ui, create_app
 
+from ..seed import aid, ensure_agent
+
 HOUR = 3600
 GRACE = HOUR  # default grace_minutes=60
 TICK = 300
 
 
 def agent(name="a", **kwargs):
-    return AgentConfig(name=name, key_hash=config.hash_key(name), **kwargs)
+    return AgentConfig(id=aid(name), name=name, key_hash=config.hash_key(name), **kwargs)
 
 
 @pytest.fixture
@@ -29,15 +31,20 @@ def contact(conn, name, at):
     """What ingest does for each authenticated request."""
     with db.transaction(conn):
         conn.execute(
-            "INSERT INTO agent_state (name, last_heartbeat, updated_at) VALUES (?, ?, ?) "
-            "ON CONFLICT(name) DO UPDATE SET last_heartbeat = excluded.last_heartbeat",
-            (name, at, at))
-        status.record_contact(conn, name, at)
+            "INSERT INTO agents (id, name, last_heartbeat, updated_at) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET last_heartbeat = excluded.last_heartbeat",
+            (aid(name), name, at, at))
+        status.record_contact(conn, aid(name), name, at)
 
 
 def log(conn, name="a"):
     return [(r["ts"], r["status"]) for r in conn.execute(
-        "SELECT ts, status FROM agent_status_log WHERE agent = ? ORDER BY ts, id", (name,))]
+        "SELECT ts, status FROM agent_status_log WHERE agent_id = ? ORDER BY ts, id", (aid(name),))]
+
+
+def log_by_id(conn, agent_id):
+    return [(r["ts"], r["status"]) for r in conn.execute(
+        "SELECT ts, status FROM agent_status_log WHERE agent_id = ? ORDER BY ts, id", (agent_id,))]
 
 
 def run_ticks(conn, agents, start, end):
@@ -153,32 +160,33 @@ class TestUpdates:
 
 class TestTimeline:
     def add(self, conn, rows):
+        ensure_agent(conn, aid("a"), "a")
         for ts, st in rows:
-            conn.execute("INSERT INTO agent_status_log (agent, ts, status) VALUES ('a', ?, ?)", (ts, st))
+            conn.execute("INSERT INTO agent_status_log (agent_id, ts, status) VALUES (?, ?, ?)", (aid("a"), ts, st))
 
     def test_spans_are_clipped_to_the_window_and_extend_to_now(self, conn):
         self.add(conn, [(100, "up"), (200, "down"), (300, "up")])
-        spans = status.timeline(conn, "a", 150, 400)
+        spans = status.timeline(conn, aid("a"), 150, 400)
         assert spans == [[150, 200, "up"], [200, 300, "down"], [300, 400, "up"]]
         assert status.uptime(spans) == pytest.approx(150 / 250)
 
     def test_time_before_the_first_record_is_left_out(self, conn):
         self.add(conn, [(300, "up")])
-        assert status.timeline(conn, "a", 100, 400) == [[300, 400, "up"]]
+        assert status.timeline(conn, aid("a"), 100, 400) == [[300, 400, "up"]]
 
     def test_unknown_and_disabled_time_does_not_count_toward_uptime(self, conn):
         self.add(conn, [(0, "up"), (100, "unknown"), (200, "disabled"), (300, "up")])
-        spans = status.timeline(conn, "a", 0, 400)
+        spans = status.timeline(conn, aid("a"), 0, 400)
         assert status.uptime(spans) == 1.0
         assert status.uptime([[0, 10, "unknown"]]) is None
 
     def test_a_pending_change_is_shown_before_the_tick_logs_it(self, conn):
         self.add(conn, [(100, "up")])
-        spans = status.timeline(conn, "a", 0, 300, pending=("down", 250))
+        spans = status.timeline(conn, aid("a"), 0, 300, pending=("down", 250))
         assert spans == [[100, 250, "up"], [250, 300, "down"]]
 
     def test_pending_new_is_not_drawn(self, conn):
-        assert status.timeline(conn, "a", 0, 300, pending=("new", 250)) == []
+        assert status.timeline(conn, aid("a"), 0, 300, pending=("new", 250)) == []
 
 
 class TestHttp:
@@ -195,18 +203,21 @@ class TestHttp:
     def test_ingest_logs_up_once_for_repeated_contact(self, client, home):
         key = config.add_agent("nas1")
         for _ in range(3):
-            client.post("/api/monitoring/events", json={}, headers={"X-API-Key": key})
+            client.post("/api/v2/heartbeat", json={}, headers={"X-API-Key": key})
         conn = db.connect()
-        assert log(conn, "nas1") == [(self.NOW, "up")]
+        assert log_by_id(conn, config.find_agent("nas1").id) == [(self.NOW, "up")]
         conn.close()
 
     def test_agents_payload(self, client, home):
         key = config.add_agent("nas1", grace_minutes=30, notes="the NAS", allowed_ip=None)
         config.add_agent("idle")
         config.set_agent_enabled("idle", False)
-        client.post("/api/monitoring/events", headers={"X-API-Key": key}, json={
+        client.post("/api/v2/events", headers={"X-API-Key": key}, json={
             "version": "2.0", "agent_type": "NAS Sync", "event_type": "backup_complete", "run_id": "r1",
-            "job_name": "nightly", "target_id": "T", "duration_seconds": 5, "cron_schedule": "30 2 * * *"})
+            "job_id": "job-1", "job_name": "nightly", "target_id": "T", "duration_seconds": 5})
+        client.post("/api/v2/jobs", headers={"X-API-Key": key}, json={"jobs": [{
+            "job_id": "job-1", "job_name": "nightly", "schedules": [{"cron": "30 2 * * *", "enabled": True}],
+            "targets": [{"target_id": "T", "target_label": "T", "source": "/a", "destination": "/b"}]}]})
 
         body = client.get("/api/ui/agents?range=7d").get_json()
         by_name = {a["name"]: a for a in body["agents"]}
@@ -218,7 +229,10 @@ class TestHttp:
         assert nas["host"] == "nas1"  # no host configured: shown under the agent name
         assert nas["jobs"] == {"total": 1, "failing": 0}
         assert nas["last_run"]["job_name"] == "nightly"
-        assert nas["schedules"] == [{"job_name": "nightly", "cron_schedule": "30 2 * * *"}]
+        assert nas["id"] == config.find_agent("nas1").id
+        assert nas["jobs_config"] == [{"job_key": "job-1", "job_name": "nightly",
+                                       "schedules": [{"cron": "30 2 * * *", "enabled": True}],
+                                       "targets": [{"target_id": "T", "label": "T", "source": "/a", "destination": "/b"}]}]
         assert nas["spans"] == []  # contact at "now" has no duration yet
         assert by_name["idle"]["status"] == "disabled"
         assert body["range"] == "7d" and body["end"] - body["start"] == 7 * 86400
@@ -227,15 +241,15 @@ class TestHttp:
         config.add_agent("a-up")
         config.add_agent("z-down")
         conn = db.connect()
-        conn.execute("INSERT INTO agent_state (name, last_heartbeat, updated_at) VALUES ('z-down', ?, ?)",
-                     (self.NOW - 2 * HOUR, self.NOW))
+        conn.execute("INSERT INTO agents (id, name, last_heartbeat, updated_at) VALUES (?, 'z-down', ?, ?)",
+                     (config.find_agent("z-down").id, self.NOW - 2 * HOUR, self.NOW))
         conn.close()
         names = [a["name"] for a in client.get("/api/ui/agents").get_json()["agents"]]
         assert names == ["z-down", "a-up"]
 
     def test_no_keys_or_hashes_are_ever_returned(self, client, home):
         key = config.add_agent("nas1")
-        client.post("/api/monitoring/events", json={}, headers={"X-API-Key": key})
+        client.post("/api/v2/heartbeat", json={}, headers={"X-API-Key": key})
         text = client.get("/api/ui/agents").get_data(as_text=True)
         assert key not in text and config.hash_key(key) not in text and "key_hash" not in text
         assert "key" not in json.loads(text)["agents"][0]["config"]

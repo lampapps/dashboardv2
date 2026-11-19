@@ -1,11 +1,11 @@
 # JABS Dashboard v2
 
-Replacement for the legacy dashboard (`../dashboard`, "v1"). Read-only web UI plus the agent ingest API, for a home lab LAN. Built in milestones; v1 and the current agents stay in service until v2 is verified and cut over.
+Replacement for the legacy dashboard (`../dashboard`, "v1"). Read-only web UI plus the agent ingest API, for a home lab LAN. v1 and the legacy agents are gone from the project: only this dashboard, `snapshot_agent`, `sync_agent` and `dns_backup_agent` remain.
 
 ## Rules specific to v2
 
 - The UI never changes state and has no login. The only writes are agent ingest (API key in `X-API-Key`). All configuration is YAML (`config/config.yaml`, `config/agents.yaml`) plus `.env` for secrets; do not add UI settings or admin endpoints.
-- Agent API contract: the v1 endpoints `/api/monitoring/events`, `/api/monitoring/target-purged` and `/api/heartbeat` must behave exactly as v1 so existing agents work unchanged (see `docs/AGENTS_API_GUIDE.md`, the reference for every agent client). New agent features are additive endpoints under `/api/v2/`, opt-in per agent (so far: `POST /api/v2/storage` with `{"samples": [{name, kind: local|cloud|repo, used_bytes, total_bytes?, series?, timestamp?}]}`; `POST /api/v2/jobs` with `{"jobs": [{job_name, schedules?: [{cron, enabled}], targets: [{name?, source?, destination?}]}]}`, which replaces the agent's previous report and feeds the Agents page's Configuration section).
+- Agent API contract (`docs/AGENTS_API_GUIDE.md`, the reference for every agent client): `POST /api/v2/heartbeat`, `/api/v2/events`, `/api/v2/purge`, `/api/v2/jobs`, `/api/v2/storage` and `GET /api/heartbeat`. There is no backward compatibility with the old `/api/monitoring/*` endpoints. Identity is by ids that never change: the agent's `id` (a UUID in `agents.yaml`, never hand-edited; `agent add` writes it, `agent adopt` fills a missing one), the agent-generated `job_id` and, within a job, `target_id`. Names (`agent.name`, `job_name`, `target_label`) are display text: a changed name renames the stored row and history stays. Never key, join or link anything by a name. Changing an endpoint breaks agents that may not be under development, so consider all of them (and bump MINOR only for additive changes).
 - Agent API keys are stored only as SHA-256 hashes in `agents.yaml`; never log or return a key or hash.
 - Treat agent-supplied text (messages, log lines, labels) as untrusted: render with `textContent`, cap sizes.
 
@@ -30,8 +30,7 @@ Replacement for the legacy dashboard (`../dashboard`, "v1"). Read-only web UI pl
 
 ## Testing
 
-- pytest (`requirements-dev.txt`). `tests/unit` is fast and isolated (use the `home` fixture). `tests/contract` is a black-box agent-API suite that runs against a throwaway copy of v1 and v2: `JABS_CONTRACT_BACKENDS=v1,v2` (default both).
-- `@pytest.mark.v1_bug(reason)` marks behavior v1 gets wrong; it is a strict xfail on v1 and must pass on v2.
+- pytest (`requirements-dev.txt`). `tests/unit` is fast and isolated (use the `home` fixture; `tests/seed.py` writes agents, jobs, targets and runs straight into a test database). `tests/contract` is a black-box agent-API suite that starts the real app on a throwaway home and talks to it over HTTP.
 - `tests/js` holds Node's built-in `node --test` tests for the pure helpers in `static/js/ui.js` (pytest runs them when `node` is installed). Keep DOM-free logic in `ui.js` so it stays testable.
 - Add or update tests with every non-trivial change; run `.venv/bin/python -m pytest -q` before finishing.
 

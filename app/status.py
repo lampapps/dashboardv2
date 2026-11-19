@@ -54,49 +54,53 @@ def effective_status(agent: AgentConfig, status: Optional[str], last_heartbeat: 
     return current if current in LOGGED else "new"
 
 
-def _set_status(conn: sqlite3.Connection, name: str, status: Optional[str], when: float, now: float,
-                reason: str = "") -> None:
+def _set_status(conn: sqlite3.Connection, agent_id: str, name: str, status: Optional[str], when: float,
+                now: float, reason: str = "") -> None:
     conn.execute(
-        "INSERT INTO agent_state (name, updated_at, status, status_since) VALUES (?, ?, ?, ?) "
-        "ON CONFLICT(name) DO UPDATE SET status = excluded.status, status_since = excluded.status_since, "
-        "updated_at = excluded.updated_at",
-        (name, now, status, when),
+        "INSERT INTO agents (id, name, updated_at, status, status_since) VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT(id) DO UPDATE SET name = excluded.name, status = excluded.status, "
+        "status_since = excluded.status_since, updated_at = excluded.updated_at",
+        (agent_id, name, now, status, when),
     )
     if status in LOGGED:
-        conn.execute("INSERT INTO agent_status_log (agent, ts, status, reason) VALUES (?, ?, ?, ?)",
-                     (name, when, status, reason))
+        conn.execute("INSERT INTO agent_status_log (agent_id, ts, status, reason) VALUES (?, ?, ?, ?)",
+                     (agent_id, when, status, reason))
 
 
-def record_contact(conn: sqlite3.Connection, name: str, now: float) -> bool:
+def record_contact(conn: sqlite3.Connection, agent_id: str, name: str, now: float) -> bool:
     """Log the agent as up if it was not; call inside the transaction that records the contact."""
-    row = conn.execute("SELECT status FROM agent_state WHERE name = ?", (name,)).fetchone()
+    row = conn.execute("SELECT status FROM agents WHERE id = ?", (agent_id,)).fetchone()
     if row is not None and row["status"] == "up":
         return False
-    _set_status(conn, name, "up", now, now, "contact")
+    _set_status(conn, agent_id, name, "up", now, now, "contact")
     return True
 
 
 def update_statuses(conn: sqlite3.Connection, agents: list, now: float) -> int:
     """Apply every due status change; returns how many agents changed."""
     changed = 0
+    names = {agent.id: agent.name for agent in agents}
     with db.transaction(conn):
         previous_alive = float(db.get_meta(conn, "alive_ts") or 0)
-        latest_contact = conn.execute("SELECT MAX(last_heartbeat) FROM agent_state").fetchone()[0] or 0
+        latest_contact = conn.execute("SELECT MAX(last_heartbeat) FROM agents").fetchone()[0] or 0
         seen = max(previous_alive, latest_contact)
         if seen and now - seen > GAP_S:
-            for row in conn.execute("SELECT name FROM agent_state WHERE status IN ('up', 'down')").fetchall():
-                _set_status(conn, row["name"], "unknown", seen, now, UNKNOWN_REASON)
+            for row in conn.execute("SELECT id, name FROM agents WHERE status IN ('up', 'down')").fetchall():
+                _set_status(conn, row["id"], names.get(row["id"], row["name"]), "unknown", seen, now, UNKNOWN_REASON)
                 changed += 1
             db.set_meta(conn, "gap_end_ts", repr(now))
         gap_end = float(db.get_meta(conn, "gap_end_ts") or 0)
-        states = {row["name"]: row for row in conn.execute("SELECT name, status, last_heartbeat FROM agent_state")}
+        states = {row["id"]: row for row in conn.execute("SELECT id, name, status, last_heartbeat FROM agents")}
         for agent in agents:
-            state = states.get(agent.name)
+            state = states.get(agent.id)
             result = evaluate(agent, state["status"] if state else None,
                               state["last_heartbeat"] if state else None, now, gap_end)
             if result:
                 status, when = result
-                _set_status(conn, agent.name, None if status == "new" else status, when, now, "tick")
+                _set_status(conn, agent.id, agent.name, None if status == "new" else status, when, now, "tick")
+                changed += 1
+            elif state is not None and state["name"] != agent.name:
+                conn.execute("UPDATE agents SET name = ? WHERE id = ?", (agent.name, agent.id))  # a rename in agents.yaml
                 changed += 1
         db.set_meta(conn, "alive_ts", repr(now))
         if changed:
@@ -121,14 +125,14 @@ def gap_end(conn: sqlite3.Connection) -> float:
     return float(db.get_meta(conn, "gap_end_ts") or 0)
 
 
-def timeline(conn: sqlite3.Connection, name: str, start: float, now: float,
+def timeline(conn: sqlite3.Connection, agent_id: str, start: float, now: float,
              pending: Optional[tuple] = None) -> list:
     """Status spans [[start, end, status], ...] for the window, oldest first.
 
     Time before the agent's first logged status is left out (nothing was known).
     """
     rows = [(r["ts"], r["status"]) for r in conn.execute(
-        "SELECT ts, status FROM agent_status_log WHERE agent = ? AND ts <= ? ORDER BY ts, id", (name, now))]
+        "SELECT ts, status FROM agent_status_log WHERE agent_id = ? AND ts <= ? ORDER BY ts, id", (agent_id, now))]
     if pending and pending[0] in LOGGED and (not rows or pending[1] >= rows[-1][0]):
         rows.append((pending[1], pending[0]))
     spans = []

@@ -76,17 +76,17 @@ def agents_data():
             conn, cfg, current_app.extensions["jabs_agents"].agents(), now, range_key))
 
 
-@bp.get("/agents/<name>")
-def agent_data(name: str):
+@bp.get("/agents/<agent_id>")
+def agent_data(agent_id: str):
     """One agent's card plus its activity chart, totals and job rows."""
     cfg = current_app.config["JABS_CONFIG"]
-    agent = next((a for a in current_app.extensions["jabs_agents"].agents() if a.name == name), None)
+    agent = current_app.extensions["jabs_agents"].find_by_id(agent_id)
     if agent is None:
         return _error("Unknown agent", 404)
     range_key, _ = storage.range_seconds(request.args.get("range"))
     now = time.time()
     with closing(db.connect()) as conn:
-        return _respond(conn, now, f"agent {name} {range_key}", lambda: agents_report.detail(
+        return _respond(conn, now, f"agent {agent_id} {range_key}", lambda: agents_report.detail(
             conn, cfg, agent, now, range_key))
 
 
@@ -103,34 +103,36 @@ def storage_data():
 
 @bp.get("/job")
 def job_data():
-    """Summary, targets and duration trend for one job (agent + name)."""
-    agent, name = _text_arg("agent"), _text_arg("name")
-    if not agent or name is None:
-        return _error("agent and name are required", 400)
+    """Summary, targets and duration trend for one job (agent id + job key)."""
+    agent_id, job_key = _text_arg("agent"), _text_arg("job")
+    agent = current_app.extensions["jabs_agents"].find_by_id(agent_id) if agent_id else None
+    if agent is None or not job_key:
+        return _error("a known agent and a job are required", 400)
     cfg = current_app.config["JABS_CONFIG"]
     now = time.time()
     with closing(db.connect()) as conn:
-        summary = runs.job_summary(conn, cfg, now, agent, name, _hosts(conn))
+        summary = runs.job_summary(conn, cfg, now, agent, job_key, _hosts(conn))
         if summary is None:
             return _error("Unknown job", 404)
-        return _respond(conn, now, f"job {agent} {name}", lambda: summary)
+        return _respond(conn, now, f"job {agent_id} {job_key}", lambda: summary)
 
 
 @bp.get("/job/runs")
 def job_runs():
     """A page of a job's runs, newest first, with optional status, target and age filters."""
-    agent, name = _text_arg("agent"), _text_arg("name")
-    if not agent or name is None:
-        return _error("agent and name are required", 400)
+    agent_id, job_key = _text_arg("agent"), _text_arg("job")
+    if not agent_id or not job_key:
+        return _error("agent and job are required", 400)
     limit = request.args.get("limit", runs.DEFAULT_PAGE_SIZE, type=int)
     offset = request.args.get("offset", 0, type=int)
     status, target = _text_arg("status"), _text_arg("target")
     since_key = request.args.get("since")
     now = time.time()
     since = now - storage.RANGES[since_key] if since_key in storage.RANGES else None
-    key = f"runs {agent} {name} {limit} {offset} {status} {target} {since_key}"
+    key = f"runs {agent_id} {job_key} {limit} {offset} {status} {target} {since_key}"
     with closing(db.connect()) as conn:
-        return _respond(conn, now, key, lambda: runs.list_runs(conn, agent, name, limit, offset, status, target, since))
+        return _respond(conn, now, key,
+                        lambda: runs.list_runs(conn, agent_id, job_key, limit, offset, status, target, since))
 
 
 @bp.get("/runs/<int:run_id>")
@@ -141,5 +143,7 @@ def run_data(run_id: int):
         detail = runs.run_detail(conn, run_id)
         if detail is None:
             return _error("Unknown run", 404)
-        detail["run"]["host"] = _hosts(conn).get(detail["run"]["agent"], detail["run"]["agent"])
+        agent = current_app.extensions["jabs_agents"].find_by_id(detail["run"]["agent_id"])
+        detail["run"]["agent"] = agent.name if agent else None
+        detail["run"]["host"] = _hosts(conn).get(detail["run"]["agent_id"], detail["run"]["agent_id"])
         return _respond(conn, now, f"run {run_id}", lambda: detail)
