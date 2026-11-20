@@ -281,6 +281,26 @@ def hash_key(key: str) -> str:
     return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
 
+def find_key_owner(key: str) -> Optional[AgentConfig]:
+    """The registered agent whose key this is, or None; the key itself is never kept."""
+    key = key.strip()
+    if not key:
+        raise ValueError("paste an API key")
+    digest = hash_key(key)
+    return next((a for a in load_agents() if a.key_hash == digest), None)
+
+
+def describe_key_owner(agent: Optional[AgentConfig]) -> str:
+    if agent is None:
+        return "no registered agent has this key (it is wrong, was replaced by a new key, or the agent was removed)"
+    problems = []
+    if not agent.enabled:
+        problems.append("the agent is DISABLED, so the key is rejected")
+    if agent.allowed_ip:
+        problems.append(f"it is only accepted from {agent.allowed_ip}")
+    return f"belongs to agent '{agent.name}'" + ("; " + "; ".join(problems) if problems else "; it will be accepted")
+
+
 def _write_agents(agents: list[AgentConfig], path: Path) -> None:
     body = AGENTS_HEADER + yaml.safe_dump(
         {"agents": [a.model_dump(exclude_none=True) for a in agents]},

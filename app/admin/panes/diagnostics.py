@@ -32,14 +32,6 @@ def _run_dev_server() -> None:
         pass
 
 
-def find_key_owner(key: str):
-    """The registered agent whose key this is, or None; the key itself is never kept."""
-    if not key:
-        raise ValueError("paste an API key")
-    digest = config.hash_key(key)
-    return next((a for a in config.load_agents() if a.key_hash == digest), None)
-
-
 class DiagnosticsPane(Pane):
     TAB_ID = "diagnostics"
     TAB_TITLE = "4 Diagnostics"
@@ -187,25 +179,17 @@ class DiagnosticsPane(Pane):
 
     async def do_key(self) -> None:
         fields = [{"key": "key", "label": "API key to look up", "kind": "password",
-                   "help": "Checked against the stored hashes and then discarded."}]
+                   "help": "Checked against the stored hashes and then discarded. Paste with your terminal's paste "
+                           "(Ctrl+Shift+V) or Ctrl+V; CLI: python -m app agent check-key"}]
 
         def submit(values: dict) -> dict:
-            return {"agent": find_key_owner(values["key"])}
+            return {"agent": config.find_key_owner(values["key"])}
 
         result = await self.admin.form("Which agent has this key?", fields, submit, "Check")
         if result is None:
             return
-        agent = result["agent"]
         self.heading("key check")
-        if agent is None:
-            self.say("  no registered agent has this key (it is wrong, was replaced by a new key, or the agent was removed)")
-            return
-        problems = []
-        if not agent.enabled:
-            problems.append("the agent is DISABLED, so the key is rejected")
-        if agent.allowed_ip:
-            problems.append(f"it is only accepted from {agent.allowed_ip}")
-        self.say(f"  belongs to agent '{agent.name}'" + ("; " + "; ".join(problems) if problems else "; it will be accepted"))
+        self.say(f"  {config.describe_key_owner(result['agent'])}")
 
     async def do_meta(self) -> None:
         items = await asyncio.to_thread(run_db, maintenance.meta_items)

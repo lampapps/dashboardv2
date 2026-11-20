@@ -31,6 +31,7 @@ COVERAGE = {
     "agent adopt": "agents.adopt",
     "orphans": "orphans",
     "agent rekey": "agents.rekey",
+    "agent check-key": "diagnostics.key",
     "agent enable": "agents.enable",
     "agent disable": "agents.disable",
     "agent remove": "agents.remove",

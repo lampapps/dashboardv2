@@ -15,6 +15,27 @@ TOOLS = (
 )
 
 
+# (program, environment variable that shows a desktop session of that kind, command that prints the clipboard)
+READ_TOOLS = (
+    ("wl-paste", "WAYLAND_DISPLAY", ["wl-paste", "--no-newline"]),
+    ("xclip", "DISPLAY", ["xclip", "-selection", "clipboard", "-o"]),
+    ("xsel", "DISPLAY", ["xsel", "--clipboard", "--output"]),
+)
+
+
+def paste_with_tool() -> Optional[str]:
+    """The system clipboard's text through a desktop clipboard program, or None when none is available."""
+    for name, session_var, command in READ_TOOLS:
+        if not os.environ.get(session_var) or not shutil.which(name):
+            continue
+        try:
+            done = subprocess.run(command, text=True, check=True, timeout=TIMEOUT_S, capture_output=True)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        return done.stdout
+    return None
+
+
 def copy_with_tool(text: str) -> Optional[str]:
     """The name of the clipboard program that took `text`, or None when no desktop session or program is available.
 

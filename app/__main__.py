@@ -1,6 +1,7 @@
 """Command line: python -m app <command>."""
 
 import argparse
+import getpass
 import logging
 import sys
 from datetime import datetime
@@ -115,6 +116,14 @@ def _cmd_agent_rekey(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_agent_check_key(_args: argparse.Namespace) -> int:
+    # The key is read from a prompt or stdin, never an argument, so it stays out of the process list and history.
+    key = sys.stdin.readline() if not sys.stdin.isatty() else getpass.getpass("API key to look up (input hidden): ")
+    agent = config.find_key_owner(key)
+    print(config.describe_key_owner(agent))
+    return 0 if agent is not None else 1
+
+
 def _cmd_agent_enable(args: argparse.Namespace) -> int:
     config.set_agent_enabled(args.name, True)
     print(f"Agent '{args.name}' enabled")
@@ -128,7 +137,7 @@ def _cmd_agent_disable(args: argparse.Namespace) -> int:
 
 
 def _cmd_agent_usage(_args: argparse.Namespace) -> int:
-    print("usage: python -m app agent {add,list,set,rename,rekey,enable,disable,remove,adopt} ...", file=sys.stderr)
+    print("usage: python -m app agent {add,list,set,rename,rekey,check-key,enable,disable,remove,adopt} ...", file=sys.stderr)
     return 2
 
 
@@ -399,6 +408,9 @@ def build_parser() -> argparse.ArgumentParser:
     rekey = agent_sub.add_parser("rekey", help="issue a new API key for an agent, keeping its name and history")
     rekey.add_argument("name")
     rekey.set_defaults(func=_cmd_agent_rekey)
+    agent_sub.add_parser(
+        "check-key", help="find which agent an API key belongs to (read from a hidden prompt or stdin)").set_defaults(
+        func=_cmd_agent_check_key)
     agent_sub.add_parser("adopt", help="give every agents.yaml entry that has no id a new one").set_defaults(
         func=_cmd_agent_adopt)
     for verb, func in (("enable", _cmd_agent_enable), ("disable", _cmd_agent_disable)):

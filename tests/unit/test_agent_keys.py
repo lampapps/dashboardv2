@@ -1,4 +1,6 @@
+import io
 import logging
+import types
 
 import pytest
 
@@ -12,6 +14,34 @@ from app.web import create_app
 def event():
     return {"version": "1.0", "agent_type": "Snapshot", "event_type": "heartbeat", "message": "hi",
             "job_id": "job-1", "target_id": "T"}
+
+
+class TestCheckKey:
+    def test_cli_reads_the_key_from_stdin(self, home, capsys, monkeypatch):
+        key = config.add_agent("nas1")
+        monkeypatch.setattr(cli.sys, "stdin", io.StringIO(key + "\n"))
+        assert cli.main(["agent", "check-key"]) == 0
+        out = capsys.readouterr().out
+        assert "belongs to agent 'nas1'" in out and "it will be accepted" in out and key not in out
+
+    def test_cli_with_an_unknown_key(self, home, capsys, monkeypatch):
+        config.add_agent("nas1")
+        monkeypatch.setattr(cli.sys, "stdin", io.StringIO("0" * 40))
+        assert cli.main(["agent", "check-key"]) == 1
+        assert "no registered agent has this key" in capsys.readouterr().out
+
+    def test_cli_prompts_without_echo_on_a_terminal(self, home, capsys, monkeypatch):
+        key = config.add_agent("nas1")
+        config.set_agent_enabled("nas1", False)
+        monkeypatch.setattr(cli.sys, "stdin", types.SimpleNamespace(isatty=lambda: True))
+        monkeypatch.setattr(cli.getpass, "getpass", lambda prompt: key)
+        assert cli.main(["agent", "check-key"]) == 0
+        assert "DISABLED" in capsys.readouterr().out
+
+    def test_an_empty_key_is_refused(self, home, capsys, monkeypatch):
+        monkeypatch.setattr(cli.sys, "stdin", io.StringIO("\n"))
+        with pytest.raises(ValueError, match="paste an API key"):
+            cli.main(["agent", "check-key"])
 
 
 class TestRekey:

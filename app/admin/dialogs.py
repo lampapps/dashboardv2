@@ -258,6 +258,18 @@ class MultiPickDialog(_Dialog):
             self.dismiss(None)
 
 
+class SystemPasteInput(Input):
+    """An Input whose Ctrl+V pastes the system clipboard; Textual's own only knows text copied inside the console."""
+
+    def action_paste(self) -> None:
+        text = clipboard.paste_with_tool()
+        if text is None:
+            super().action_paste()
+            return
+        lines = text.splitlines()
+        self.replace(lines[0] if lines else "", *self.selection)
+
+
 class FormDialog(_Dialog):
     """A form. `fields` are dicts: key, label, kind ('text'|'int'|'bool'|'password'), value, help.
 
@@ -278,8 +290,8 @@ class FormDialog(_Dialog):
                         yield Checkbox(field["label"], bool(field.get("value")), id=f"f-{field['key']}")
                     else:
                         yield Label(field["label"])
-                        yield Input(str(field.get("value") if field.get("value") is not None else ""),
-                                    password=field["kind"] == "password", id=f"f-{field['key']}")
+                        yield SystemPasteInput(str(field.get("value") if field.get("value") is not None else ""),
+                                               password=field["kind"] == "password", id=f"f-{field['key']}")
                     if field.get("help"):
                         yield Static(field["help"], markup=False, classes="help")
             yield Static("", id="error", markup=False, classes="error-text")

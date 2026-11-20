@@ -55,6 +55,21 @@ class TestCopyWithTool:
         assert clipboard.copy_with_tool("x") == "xsel" and seen == ["xclip", "xsel"]
 
 
+class TestPasteWithTool:
+    def test_reads_the_clipboard_through_the_session_program(self, monkeypatch):
+        monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+        monkeypatch.setenv("DISPLAY", ":0")
+        monkeypatch.setattr(clipboard.shutil, "which", lambda name: f"/usr/bin/{name}")
+        monkeypatch.setattr(clipboard.subprocess, "run",
+                            lambda command, **kwargs: subprocess.CompletedProcess(command, 0, stdout="abc"))
+        assert clipboard.paste_with_tool() == "abc"
+
+    def test_nothing_without_a_session(self, monkeypatch):
+        monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+        monkeypatch.delenv("DISPLAY", raising=False)
+        assert clipboard.paste_with_tool() is None
+
+
 class TestMessageDialog:
     @pytest.fixture
     def shown(self, monkeypatch):

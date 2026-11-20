@@ -16,6 +16,12 @@ v2 replaces the legacy dashboard (`../dashboard`, "v1"). Version 0.5.0 also repl
 
 Do these steps as the user that will run the service, in the install directory.
 
+0. **Clone**
+   ```bash
+   sudo mkdir /opt/jabs-dashboard
+   sudo chown <user>:<user> /opt/jabs-dashboard
+   git clone https://github.com/lampapps/dashboardv2.git /opt/jabs-dashboard
+
 1. **Install.**
 
    ```bash
@@ -32,16 +38,14 @@ Do these steps as the user that will run the service, in the install directory.
 
 3. **Configure** (tab `2` Files). Select `config.yaml` and press `e` to edit it in your system editor: set the timezone, the drives you want charted and, if you want mail, the SMTP server and recipients. Do the same for `.env` (SMTP login, AWS keys). The files document themselves, so leave what you do not need. The console checks each file when you close the editor and offers to revert a mistake.
 
-4. **Test email** (tab `4` Diagnostics): press `m` to send a test message.
-
-5. **Register your agents** (tab `1` Agents): press `a`, enter a name and the machine it runs on. The API key is shown once, with the two lines to put in that agent's `.env`:
+4. **Register your agents** (tab `1` Agents): press `a`, enter a name and the machine it runs on. The API key is shown once, with the two lines to put in that agent's `.env`:
 
    ```text
    JABS_DASHBOARD_URL=http://<this host>:5002
    JABS_AGENT_KEY=<the key>
    ```
 
-6. **Install the services** (quit the console first, or use another terminal):
+5. **Install the services** (quit the console first, or use another terminal):
 
    ```bash
    sudo deploy/install.sh
@@ -49,7 +53,7 @@ Do these steps as the user that will run the service, in the install directory.
 
    This runs a config check and then installs and starts a web service (gunicorn) and a timer that runs the periodic tasks every 5 minutes. The service runs as the invoking user, never root; use `--user NAME` if you are not running `sudo` from that user's session.
 
-7. **Check it.** Open `http://<this host>:5002/` and `/healthz`. In the console, tab `5` Service shows the units and follows their journal, and tab `1` shows each agent's last contact once it reports.
+6. **Check it.** Open `http://<this host>:5002/` and `/healthz`. In the console, tab `5` Service shows the units and follows their journal, and tab `1` shows each agent's last contact once it reports.
 
 To try the dashboard before installing services, run `.venv/bin/python -m app web --dev` (<http://localhost:5002/>).
 
@@ -107,6 +111,7 @@ Run as `.venv/bin/python -m app <command>`. The [admin console](#admin-console) 
 | `agent rename NAME NEW_NAME` | Change an agent's name; only the label changes, its id, key, settings and history stay and the agent needs no change. Refused when `NEW_NAME` is registered |
 | `agent adopt` | Give an id to every agent in `agents.yaml` that lacks one (needed once after upgrading from 0.4) |
 | `agent rekey NAME` | Issue a new API key for an agent (printed once); the old key stops working at once, the id, name and history stay |
+| `agent check-key` | Find which agent an API key belongs to, and whether it would be accepted; the key is read from a hidden prompt, or from stdin when piped (`echo "$KEY" \| ... agent check-key`) |
 | `agent remove NAME --yes [--purge-history]` | Delete an agent from the registry; `--purge-history` also deletes its runs, status and storage samples |
 | `orphans` | List stored history that nothing configures any more: agents removed from `agents.yaml`, and jobs an agent no longer reports |
 | `backup [--dest FILE]` | Consistent copy of the database, safe while running |
