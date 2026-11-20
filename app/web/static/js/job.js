@@ -58,10 +58,7 @@ function buildTrend() {
   trend = new Chart($("c-trend"), {
     type: "line",
     data: {
-      datasets: [
-        { label: "Duration", yAxisID: "y", borderColor: cssVar("--c1"), backgroundColor: cssVar("--c1"), data: [], borderWidth: 1.6, tension: 0 },
-        { label: "Size", yAxisID: "y1", borderColor: cssVar("--c2"), backgroundColor: cssVar("--c2"), data: [], borderWidth: 1.6, tension: 0 },
-      ],
+      datasets: [],
     },
     options: {
       animation: false, responsive: true, maintainAspectRatio: false, parsing: false, normalized: true,
@@ -90,7 +87,7 @@ function buildTrend() {
         tooltip: {
           callbacks: {
             title: (items) => (items.length ? fmtDateTime(items[0].parsed.x, state.tz) : ""),
-            label: (item) => (item.datasetIndex === 0 ? `Duration: ${fmtDuration(item.parsed.y)}` : `Size: ${fmtBytes(item.parsed.y)}`),
+            label: (item) => `${item.dataset.label}: ${item.dataset.metric === "duration" ? fmtDuration(item.parsed.y) : fmtBytes(item.parsed.y)}`,
           },
         },
       },
@@ -98,26 +95,56 @@ function buildTrend() {
   });
 }
 
+const TARGET_COLORS = ["--c1", "--c2", "--c3", "--c4", "--c5", "--c6"];
+
+// One duration and one size line per target; with several targets each gets its own colour, size is dashed.
+function trendDatasets(points, singleTarget) {
+  const base = { borderWidth: 1.6, tension: 0, showLine: true };
+  const statusColors = (list) => list.map((p) => cssVar("--st-" + bucketOf(p.status)));
+  const withSize = (list) => list.filter((p) => p.bytes_processed !== null);
+  if (singleTarget) {
+    const color1 = cssVar("--c1");
+    const color2 = cssVar("--c2");
+    const colors = statusColors(points);
+    return [
+      { ...base, metric: "duration", label: "Duration", yAxisID: "y", borderColor: color1, backgroundColor: color1, pointBackgroundColor: colors, pointBorderColor: colors, pointRadius: 3, data: points.map((p) => ({ x: p.started_at, y: p.runtime_seconds })) },
+      { ...base, metric: "size", label: "Size", yAxisID: "y1", borderColor: color2, backgroundColor: color2, pointRadius: 2, data: withSize(points).map((p) => ({ x: p.started_at, y: p.bytes_processed })) },
+    ];
+  }
+  const groups = new Map();
+  points.forEach((p) => {
+    const id = p.target_id || "";
+    if (!groups.has(id)) groups.set(id, { name: p.target_label || id || "(none)", points: [] });
+    groups.get(id).points.push(p);
+  });
+  const datasets = [];
+  [...groups.values()].forEach((group, i) => {
+    const color = cssVar(TARGET_COLORS[i % TARGET_COLORS.length]);
+    datasets.push({
+      ...base, metric: "duration", label: `${group.name} · Duration`, yAxisID: "y", borderColor: color, backgroundColor: color,
+      pointBackgroundColor: statusColors(group.points), pointBorderColor: color, pointBorderWidth: 1.6, pointRadius: 3,
+      data: group.points.map((p) => ({ x: p.started_at, y: p.runtime_seconds })),
+    });
+    datasets.push({
+      ...base, metric: "size", label: `${group.name} · Size`, yAxisID: "y1", borderColor: color, backgroundColor: color,
+      borderDash: [5, 4], pointStyle: "rectRot", pointRadius: 3,
+      data: withSize(group.points).map((p) => ({ x: p.started_at, y: p.bytes_processed })),
+    });
+  });
+  return datasets;
+}
+
 function renderTrend(points, singleTarget) {
   const signature = JSON.stringify([points, singleTarget]);
   if (signature === state.trendSignature) return;
   state.trendSignature = signature;
-  const colors = points.map((p) => cssVar("--st-" + bucketOf(p.status)));
-  const [duration, size] = trend.data.datasets;
-  // Runs of different targets interleave, so a line between them would only mislead.
-  duration.showLine = size.showLine = singleTarget;
-  duration.data = points.map((p) => ({ x: p.started_at, y: p.runtime_seconds }));
-  duration.pointBackgroundColor = colors;
-  duration.pointBorderColor = colors;
-  duration.pointRadius = 3;
-  size.data = points.filter((p) => p.bytes_processed !== null).map((p) => ({ x: p.started_at, y: p.bytes_processed }));
-  size.pointRadius = 2;
+  trend.data.datasets = trendDatasets(points, singleTarget);
   const range = singlePointRange(points.map((p) => p.started_at));
   trend.options.scales.x.min = range.min;
   trend.options.scales.x.max = range.max;
   state.windowed = range.min !== undefined;
   trend.update("none");
-  setText($("trend-note"), points.length ? `Last ${points.length} finished runs; red points failed.` : "No finished runs yet.");
+  setText($("trend-note"), points.length ? `Last ${points.length} finished runs; ${singleTarget ? "" : "one line per target, size dashed; "}red points failed.` : "No finished runs yet.");
 }
 
 function setCard(id, value, note) {

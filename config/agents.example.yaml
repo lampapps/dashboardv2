@@ -1,4 +1,4 @@
 # Agents allowed to report to the dashboard (API keys are stored only as SHA-256 hashes).
-# Add one with: python -m app agent add NAME
+# Add one with: .venv/bin/python -m app agent add NAME
 # Edits take effect without a restart. Comments are not preserved when the CLI rewrites this file.
 agents: []

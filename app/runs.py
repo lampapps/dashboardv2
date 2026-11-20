@@ -58,7 +58,8 @@ def list_runs(conn: sqlite3.Connection, agent_id: str, job_key: str, limit: int 
 def trend(conn: sqlite3.Connection, agent_id: str, job_key: str, limit: int = TREND_RUNS) -> list:
     """Duration and size of the most recent finished runs, oldest first."""
     rows = conn.execute(
-        "SELECT started_at, status, runtime_seconds, bytes_processed FROM run_view WHERE agent_id = ? AND job_key = ? "
+        "SELECT started_at, status, runtime_seconds, bytes_processed, target_id, target_label FROM run_view "
+        "WHERE agent_id = ? AND job_key = ? "
         "AND runtime_seconds IS NOT NULL ORDER BY started_at DESC LIMIT ?", (agent_id, job_key, limit)).fetchall()
     return [dict(r) for r in reversed(rows)]
 

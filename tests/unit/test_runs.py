@@ -83,6 +83,10 @@ class TestTrendAndSummary:
         assert [p["runtime_seconds"] for p in points] == [30, 10]
         assert len(runs.trend(conn, "a", "J", limit=1)) == 1
 
+    def test_trend_points_name_their_target(self, conn):
+        add_run(conn, started=NOW - 300, runtime=30, target="X", label="Ex")
+        add_run(conn, started=NOW - 100, runtime=10, target="Y")
+        assert [(p["target_id"], p["target_label"]) for p in runs.trend(conn, "a", "J")] == [("X", "Ex"), ("Y", "Y")]
     def test_summary_has_targets_schedule_and_success_only_average(self, conn):
         add_run(conn, agent=AID, runtime=10, target="X", label="Ex")
         add_run(conn, agent=AID, runtime=30, target="X", label="Ex", status="purged")
